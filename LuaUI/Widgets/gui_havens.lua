@@ -22,6 +22,7 @@ VFS.Include("LuaRules/Configs/customcmds.h.lua")
 options_path = 'Settings/Interface/Retreat Zones'
 options_order = {'onlyShowMyZones', 'cancelRetreat'}
 
+local myID = Spring.GetMyPlayerID()
 local RETREAT_OFF_TABLE = {0}
 
 options = {
@@ -116,8 +117,20 @@ end
 ----------------------------------------------------------------------------------------
 --callins
 
-function widget:PlayerChanged(playerID)
+--[[function widget:PlayerChanged(playerID)
 	if playerID == Spring.GetMyPlayerID() then
+		GetHavens()
+	end
+end]]
+
+function widget:PlayerResigned(playerID)
+	if playerID == myID then
+		GetHavens()
+	end
+end
+
+function widget:PlayerChangedTeam(playerID)
+	if playerID == myID then
 		GetHavens()
 	end
 end

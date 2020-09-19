@@ -254,9 +254,10 @@ function widget:Initialize()
 	UpdateColorConfig(options.colorSetting)
 end
 
-local oldTeamID = Spring.GetMyTeamID()
+local myID = Spring.GetMyPlayerID()
+--local oldTeamID = Spring.GetMyTeamID()
 -- This function is alright but other, poorly written widgets cause a massive spike when team colours change.
-function widget:PlayerChanged()
+--[[function widget:PlayerChanged()
 	if Spring.GetSpectatingState() then
 		return
 	end
@@ -268,6 +269,12 @@ function widget:PlayerChanged()
 	oldTeamID = newTeamID
 	
 	UpdateColor(true)
+end]] -- kept this just in case I misread the function.
+
+function widget:PlayerChangedTeam(playerID, old, new)
+	if playerID == myID then
+		UpdateColor(true)
+	end
 end
 
 function widget:Shutdown()

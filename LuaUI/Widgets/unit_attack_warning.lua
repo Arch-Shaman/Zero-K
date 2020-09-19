@@ -11,7 +11,7 @@ function widget:GetInfo()
 end
 
 local spGetSpectatingState	= Spring.GetSpectatingState
-
+local myPlayerID = Spring.GetMyPlayerID()
 local warningDelay = 30 * 5 	--in frames
 local lastWarning = 0			--in frames
 local localTeamID = Spring.GetLocalTeamID ()
@@ -22,7 +22,7 @@ local function languageChanged ()
 end
 
 function widget:UnitDamaged (unitID, unitDefID, unitTeam, damage, paralyzer, weaponID, attackerID, attackerDefID, attackerTeam)
-	if damage <= 0 then return end
+	if damage <= 0 then return end -- TODO: Add status damage?
 	local currentFrame = Spring.GetGameFrame ()
 	if (lastWarning+warningDelay > currentFrame) then
 		return
@@ -50,11 +50,14 @@ function widget:Shutdown()
 	WG.ShutdownTranslation(GetInfo().name)
 end
 
---changing teams, rejoin, becoming spec etc
-function widget:PlayerChanged (playerID)
-	if spGetSpectatingState() then
-		--Spring.Echo("<Attack Warning>: Spectator mode. Widget removed.")
+function widget:PlayerResigned(playerID)
+	if playerID == myID then
 		widgetHandler:RemoveWidget()
 	end
-	localTeamID = Spring.GetLocalTeamID ()
+end
+
+function widget:PlayerChangedTeam(playerID,oldteam,newteam)
+	if playerID == myPlayerID then
+		localTeamID = newteam
+	end
 end

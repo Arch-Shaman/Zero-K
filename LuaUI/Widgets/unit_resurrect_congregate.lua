@@ -17,6 +17,7 @@ local waitDuration_gbl_cnst = 1
 local blobRadius_gbl_cnst = 300
 local blobUnits_gbl_cnst = 5
 local congregateRange_gbl_cnst = 3000
+local myID = Spring.GetMyPlayerID()
 
 local spGetGameFrame = Spring.GetGameFrame
 local spGetUnitIsStunned = Spring.GetUnitIsStunned
@@ -58,8 +59,16 @@ function widget:Initialize()
 	myTeamID_gbl = Spring.GetMyTeamID()
 end
 
-function widget:PlayerChanged(playerID)
-	if Spring.GetSpectatingState() then widgetHandler:RemoveWidget() end
+function widget:PlayerResigned(playerID)
+	if playerID == myID then
+		widgetHandler:RemoveWidget()
+	end
+end
+
+function widget:PlayerChangedTeam(playerID,old,new)
+	if playerID == myID then
+		myTeamID_gbl = new
+	end
 end
 
 local elapsedTime = 0

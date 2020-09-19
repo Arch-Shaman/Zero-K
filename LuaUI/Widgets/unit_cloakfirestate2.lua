@@ -13,6 +13,7 @@ function widget:GetInfo()
 	}
 end
 
+local myID = Spring.GetMyPlayerID()
 local enabled = true
 local function CheckEnable()
 	if Spring.GetSpectatingState() or (not options.enable_cloak_holdfire.value) then
@@ -90,10 +91,19 @@ function widget:UnitDecloaked(unitID, unitDefID, teamID)
 	cloakUnit[unitID] = nil
 end
 
-function widget:PlayerChanged()
-	myTeam = Spring.GetMyTeamID()
-	CheckEnable()
+function widget:PlayerResigned(playerID)
+	if playerID == myID then
+		CheckEnable()
+	end
 end
+
+function widget:PlayerChangedTeam(playerID, old, new)
+	if playerID == myID then
+		myTeam = new
+	end
+end
+
+
 
 function widget:Initialize()
 	myTeam = Spring.GetMyTeamID()

@@ -575,9 +575,14 @@ local function SetupAITeamColor() --Copied from gui_chili_chat2_1.lua
 	end --for each team
 end
 
-function widget:PlayerChanged(playerID)
+function widget:PlayerResigned(playerID)
+	local playerName = Spring.GetPlayerInfo(playerID, false)
+	widget:AddWarning(playerName .. ' resigned') -- NOTE: commshare means individual players can resign while their team is still alive.
+end
+
+--[[function widget:PlayerChanged(playerID)
 	local playerName,active,isSpec,teamID = Spring.GetPlayerInfo(playerID, false)
-  local _,_,isDead = Spring.GetTeamInfo(teamID, false)
+	local _,_,isDead = Spring.GetTeamInfo(teamID, false)
 	if (isSpec) then
 		if not isDead then
 			widget:AddWarning(playerName .. ' resigned')
@@ -585,7 +590,7 @@ function widget:PlayerChanged(playerID)
 	elseif (Spring.GetDrawFrame()>120) then --// skip `changed status` message flood when entering the game
 		widget:AddWarning(playerName .. ' changed status')
 	end
-end
+end]] -- changed status is probably not useful to keep around.
 
 function widget:PlayerRemoved(playerID, reason)
 	local playerName = Spring.GetPlayerInfo(playerID, false)

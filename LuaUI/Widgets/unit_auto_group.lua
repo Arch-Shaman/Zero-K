@@ -38,7 +38,8 @@ local _, ToKeysyms = include("Configs/integral_menu_special_keys.lua")
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-local debug = false --of true generates debug messages
+local myID = Spring.GetMyPlayerID()
+local debug = false --if true generates debug messages
 local unit2group = {} -- list of unit types to group
 
 local groupableBuildingTypes = { 'tacnuke', 'empmissile', 'napalmmissile', 'seismic' }
@@ -200,20 +201,13 @@ function printDebug( value )
 	end
 end
 
-function widget:PlayerChanged(playerID)
-	if playerID ~= Spring.GetMyPlayerID() then
-		return
+function widget:PlayerChangedTeam(playerID, old, new)
+	if playerID == myID then
+		myCurrentTeam = new
 	end
-
-	local myCurrentTeam = Spring.GetMyTeamID()
-	if myCurrentTeam == myTeam then
-		return
-	end
-	myTeam = myCurrentTeam
-
-	-- units lose their group on team change (technically they keep it but it's only accessible if you go back to the old team)
-	-- but the player is transferred before his units so reassignation happens in UnitGiven
 end
+-- units lose their group on team change (technically they keep it but it's only accessible if you go back to the old team)
+-- but the player is transferred before his units so reassignation happens in UnitGiven
 
 function widget:Initialize()
 	local _, _, spec, team = Spring.GetPlayerInfo(Spring.GetMyPlayerID(), false)
