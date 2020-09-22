@@ -127,9 +127,9 @@ if VFS.FileExists("mission.lua") then -- this is a mission, we just want to set 
 		Spring.SetUnitRulesParam(unitID, "facplop", 1, {inlos = true})
 	end
 
-	function gadget:UnitCreated(unitID, unitDefID, teamID, builderID)
+	--[[function gadget:UnitCreated(unitID, unitDefID, teamID, builderID)
 		CheckFacplopUse(unitID, unitDefID, teamID, builderID)
-	end
+	end]]
 
 	return
 end
@@ -175,9 +175,9 @@ local loadGame = false	-- was this loaded from a savegame?
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-function gadget:UnitCreated(unitID, unitDefID, teamID, builderID)
+--[[function gadget:UnitCreated(unitID, unitDefID, teamID, builderID)
 	CheckFacplopUse(unitID, unitDefID, teamID, builderID)
-end
+end]]
 
 local function InitUnsafe()
 	

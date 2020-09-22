@@ -69,6 +69,12 @@ local Sounds = {
 			in3d = true,
 			rolloff = 4,
 		},
+		Teleport2 = {
+			file = "sounds/misc/teleport2.wav",
+			preload = true,
+			pitchmod = 0.05,
+			gainmod = 0,
+		},
 		Launcher = {
 			file = "sounds/weapon/launcher.wav",
 			pitchmod = 0.05,
