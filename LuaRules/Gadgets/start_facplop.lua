@@ -56,6 +56,20 @@ local IN_LOS = {inlos = true}
 
 local facplopsremaining = 0
 local debugMode = false
+local CampaignSafety = false
+
+if VFS.FileExists("mission.lua") then
+	CampaignSafety = true
+	
+	function GG.GiveFacplop(unitID)(unitID) -- no longer deprecated due to how ShamanPlop's automatic shutoff works.
+		facplopsremaining = facplopsremaining + 1
+		spSetUnitRulesParam(unitID,"facplop", 1, IN_LOS)
+		if facplopsremaining > 0 then
+			gadgetHandler:UpdateCallIn('UnitCreated')
+		end
+	end
+
+end
 
 function gadget:UnitCreated(unitID, unitDefID, unitTeam, builderID)
 	if spGetGameFrame() < 3 and UnitDefs[unitDefID].customParams.commtype then
@@ -88,8 +102,8 @@ function gadget:UnitCreated(unitID, unitDefID, unitTeam, builderID)
 		end
 		str = str .. ",END_PLOP"
 		spSendCommands("wbynum 255 " .. str)
-		spPlaySoundFile("sounds/misc/teleport2.wav", 10, x, y, z)
-		if facplopsremaining == 0 then
+		spPlaySoundFile("sounds/misc/teleport2.wav", 10, x, y, z) -- this is fine now because of preloading (hopefully)
+		if facplopsremaining == 0 and not CampaignSafety then
 			gadgetHandler:RemoveCallin('UnitCreated')
 		end
 	end
@@ -125,18 +139,8 @@ end
 
 function gadget:Load() -- TODO: implement proper saving the amount of facplops remaining.
 	CheckUnits()
-	if facplopsremaining == 0 then
+	if facplopsremaining == 0 and not CampaignSafety then
 		gadgetHandler:RemoveCallIn('UnitCreated')
-	end
-end
-
-if VFS.FileExists("mission.lua") then
-	function GG.GiveFacplop(unitID)(unitID) -- no longer deprecated due to how ShamanPlop's automatic shutoff works.
-		facplopsremaining = facplopsremaining + 1
-		spSetUnitRulesParam(unitID,"facplop", 1, IN_LOS)
-		if facplopsremaining > 0 then
-			gadgetHandler:UpdateCallIn('UnitCreated')
-		end
 	end
 end
 
