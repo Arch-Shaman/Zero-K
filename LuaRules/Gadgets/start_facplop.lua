@@ -74,11 +74,15 @@ end
 function gadget:UnitCreated(unitID, unitDefID, unitTeam, builderID)
 	if spGetGameFrame() < 3 and UnitDefs[unitDefID].customParams.commtype then
 		facplopsremaining = facplopsremaining + 1
-		if debugMode then spEcho("Facplops left: " .. facplopsremaining) end
+		if debugMode then
+			spEcho("Facplops left: " .. facplopsremaining)
+		end
 	end
 	if ploppableDefs[unitDefID] and builderID and spGetUnitRulesParam(builderID, "facplop") == 1 then
 		facplopsremaining = facplopsremaining - 1
-		if debugMode then spEcho("Facplop: " .. unitID) end
+		if debugMode then
+			spEcho("Facplop: " .. unitID)
+		end
 		spSetUnitRulesParam(builderID, "facplop", 0, IN_LOS)
 		spSetUnitRulesParam(unitID,"ploppee",1, IN_LOS)
 		local _, _, cmdTag = spGetUnitCurrentCommand(builderID)
@@ -118,7 +122,9 @@ local function CheckUnits()
 		local unitID = allunits[i]
 		if spGetUnitRulesParam(unitID, "facplop") == 1 then
 			facplopsremaining = facplopsremaining + 1
-			if debugMode then spEcho("Facplops left: " .. facplopsremaining) end
+			if debugMode then
+				spEcho("Facplops left: " .. facplopsremaining)
+			end
 		end
 	end
 end
