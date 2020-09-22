@@ -63,7 +63,7 @@ if VFS.FileExists("mission.lua") then
 	
 	function GG.GiveFacplop(unitID)(unitID) -- no longer deprecated due to how ShamanPlop's automatic shutoff works.
 		facplopsremaining = facplopsremaining + 1
-		spSetUnitRulesParam(unitID,"facplop", 1, IN_LOS)
+		spSetUnitRulesParam(unitID, "facplop", 1, IN_LOS)
 		if facplopsremaining > 0 then
 			gadgetHandler:UpdateCallIn('UnitCreated')
 		end
@@ -79,13 +79,13 @@ function gadget:UnitCreated(unitID, unitDefID, unitTeam, builderID)
 	if ploppableDefs[unitDefID] and builderID and spGetUnitRulesParam(builderID, "facplop") == 1 then
 		facplopsremaining = facplopsremaining - 1
 		if debugMode then spEcho("Facplop: " .. unitID) end
-		spSetUnitRulesParam(builderID,"facplop",0, IN_LOS)
+		spSetUnitRulesParam(builderID, "facplop", 0, IN_LOS)
 		spSetUnitRulesParam(unitID,"ploppee",1, IN_LOS)
 		local _, _, cmdTag = spGetUnitCurrentCommand(builderID)
 		spGiveOrderToUnit(builderID, CMD.REMOVE, cmdTag, CMD.OPT_ALT)
 		local maxHealth = select(2,spGetUnitHealth(unitID))
 		spSetUnitHealth(unitID, {health = maxHealth, build = 1})
-		local x,y,z = spGetUnitPosition(unitID)
+		local x, y, z = spGetUnitPosition(unitID)
 		spSpawnCEG("gate", x, y, z)
 		-- Stats collection (actually not, see below)
 		if GG.mod_stats_AddFactoryPlop then
