@@ -12,7 +12,7 @@ local ploppables = {
   "factorygunship",
 }
 
-local ploppableDefs = {}
+ploppableDefs = {}
 for i = 1, #ploppables do
 	local ud = UnitDefNames[ploppables[i]]
 	if ud and ud.id then
