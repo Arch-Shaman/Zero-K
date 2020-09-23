@@ -389,12 +389,7 @@ local function SpawnStartUnit(teamID, playerID, isAI, bonusSpawn, notAtTheStartO
 		-- add facplop
 		--local teamLuaAI = Spring.GetTeamLuaAI(teamID)
 		local udef = UnitDefs[Spring.GetUnitDefID(unitID)]
-
-		--local metal, metalStore = Spring.GetTeamResources(teamID, "metal")
-		--local energy, energyStore = Spring.GetTeamResources(teamID, "energy")
-
-		--Spring.SetTeamResource(teamID, "energy", teamInfo.start_energy or (START_ENERGY + energy))
-		--Spring.SetTeamResource(teamID, "metal", teamInfo.start_metal or (START_METAL + metal))
+		Script.LuaRules.GiveStartResources(teamID)
 
 		if GG.Overdrive then
 			GG.Overdrive.AddInnateIncome(allyTeamID, INNATE_INC_METAL, INNATE_INC_ENERGY)
