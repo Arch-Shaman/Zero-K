@@ -33,6 +33,7 @@ local spGetUnitCurrentCommand = Spring.GetUnitCurrentCommand
 local spEcho = Spring.Echo
 local spGetUnitDefID = Spring.GetUnitDefID
 local spIsCheatingEnabled = Spring.IsCheatingEnabled
+local spSendCommands = Spring.SendCommands
 local IN_LOS = {inlos = true}
 
 local modOptions = Spring.GetModOptions()
@@ -77,23 +78,25 @@ function gadget:UnitCreated(unitID, unitDefID, unitTeam, builderID)
 		local maxHealth = select(2,spGetUnitHealth(unitID))
 		spSetUnitHealth(unitID, {health = maxHealth, build = 1})
 		local x, y, z = spGetUnitPosition(unitID)
-		spSpawnCEG("gate", x, y, z)
+		spSpawnCEG("teleport_in", x, y, z)
 		-- Stats collection (actually not, see below)
 		if GG.mod_stats_AddFactoryPlop then
-			GG.mod_stats_AddFactoryPlop(teamID, unitDefID)
+			GG.mod_stats_AddFactoryPlop(unitTeam, unitDefID)
 		end
 		-- FIXME: temporary hack because I'm in a hurry
 		-- proper way: get rid of all the useless shit in modstats, reenable and collect plop stats that way (see above)
-		local str = "SPRINGIE:facplop," .. UnitDefs[unitDefID].name .. "," .. teamID .. "," .. select(6, spGetTeamInfo(teamID, false)) .. ","
-		local _, playerID, _, isAI = spGetTeamInfo(teamID, false)
+		local _, playerID, _, isAI, _, allyTeam = spGetTeamInfo(unitTeam, false)
+		local facname = UnitDefs[unitDefID].name
+		local playername = spGetPlayerInfo(playerID, false) or "ChanServ"  -- ditto, different acc to differentiate
+		local str = "SPRINGIE:facplop," .. facname .. "," .. unitTeam .. "," .. allyTeam .. ","
 		if isAI then
 			str = str .. "Nightwatch" -- existing account just in case infra explodes otherwise
 		else
-			str = str .. (spGetPlayerInfo(playerID, false) or "ChanServ") -- ditto, different acc to differentiate
+			str = str .. playername
 		end
 		str = str .. ",END_PLOP"
 		spSendCommands("wbynum 255 " .. str)
-		spPlaySoundFile("sounds/misc/teleport2.wav", 10, x, y, z) -- this is fine now because of preloading (hopefully)
+		spPlaySoundFile("Teleport2", 10, x, y, z) -- this is fine now because of preloading (hopefully)
 		if facplopsremaining == 0 and not CampaignSafety then
 			gadgetHandler:RemoveCallin('UnitCreated')
 		end

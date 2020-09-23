@@ -5,7 +5,7 @@ function gadget:GetInfo()
 		author    = "Licho, CarRepairer, Google Frog, SirMaverick",
 		date      = "2008-2010",
 		license   = "GNU GPL, v2 or later",
-		layer     = -1, -- Before terraforming gadget (for facplop terraforming)
+		layer     = -2, -- Before terraforming gadget (for facplop terraforming)
 		enabled   = true  --  loaded by default?
 	}
 end
@@ -68,7 +68,7 @@ local function CheckOrderRemoval() -- FIXME: maybe we can remove polling every f
 	ordersToRemove = nil
 end
 
-local function CheckFacplopUse(unitID, unitDefID, teamID, builderID)
+--[[local function CheckFacplopUse(unitID, unitDefID, teamID, builderID)
 	if ploppableDefs[unitDefID] and (select(5, Spring.GetUnitHealth(unitID)) < 0.1) and (builderID and Spring.GetUnitRulesParam(builderID, "facplop") == 1) then
 		-- (select(5, Spring.GetUnitHealth(unitID)) < 0.1) to prevent ressurect from spending facplop.
 		Spring.SetUnitRulesParam(builderID,"facplop",0, {inlos = true})
@@ -102,13 +102,13 @@ local function CheckFacplopUse(unitID, unitDefID, teamID, builderID)
 
 		-- Spring.PlaySoundFile("sounds/misc/teleport2.wav", 10, x, y, z) -- FIXME: performance loss, possibly preload?
 	end
-end
+end]]
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 -- Mission Handling
 
-if VFS.FileExists("mission.lua") then -- this is a mission, we just want to set starting storage (and enable facplopping)
+--[[if VFS.FileExists("mission.lua") then -- this is a mission, we just want to set starting storage (and enable facplopping)
 	function gadget:Initialize()
 		for _, teamID in ipairs(Spring.GetTeamList()) do
 			Spring.SetTeamResource(teamID, "es", START_STORAGE + HIDDEN_STORAGE)
@@ -127,12 +127,12 @@ if VFS.FileExists("mission.lua") then -- this is a mission, we just want to set 
 		Spring.SetUnitRulesParam(unitID, "facplop", 1, {inlos = true})
 	end
 
-	--[[function gadget:UnitCreated(unitID, unitDefID, teamID, builderID)
+	function gadget:UnitCreated(unitID, unitDefID, teamID, builderID)
 		CheckFacplopUse(unitID, unitDefID, teamID, builderID)
-	end]]
+	end
 
 	return
-end
+end]]
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -310,7 +310,7 @@ local function SpawnStartUnit(teamID, playerID, isAI, bonusSpawn, notAtTheStartO
 	if not teamID then
 		return
 	end
-	local _,_,_,_,_,allyTeamID,teamInfo = Spring.GetTeamInfo(teamID, true)
+	local _, _, _, _, _, allyTeamID, teamInfo = Spring.GetTeamInfo(teamID, true)
 	if teamInfo and teamInfo.nocommander then
 		waitingForComm[teamID] = nil
 		return
@@ -373,7 +373,7 @@ local function SpawnStartUnit(teamID, playerID, isAI, bonusSpawn, notAtTheStartO
 		
 		if Spring.GetGameFrame() <= 1 then
 			Spring.SpawnCEG("gate", x, y, z)
-			-- Spring.PlaySoundFile("sounds/misc/teleport2.wav", 10, x, y, z) -- performance loss
+			Spring.PlaySoundFile("Teleport2", 10, x, y, z) -- no longer perf loss
 		end
 
 		if not bonusSpawn then
@@ -387,14 +387,14 @@ local function SpawnStartUnit(teamID, playerID, isAI, bonusSpawn, notAtTheStartO
 		end
 
 		-- add facplop
-		local teamLuaAI = Spring.GetTeamLuaAI(teamID)
+		--local teamLuaAI = Spring.GetTeamLuaAI(teamID)
 		local udef = UnitDefs[Spring.GetUnitDefID(unitID)]
 
-		local metal, metalStore = Spring.GetTeamResources(teamID, "metal")
-		local energy, energyStore = Spring.GetTeamResources(teamID, "energy")
+		--local metal, metalStore = Spring.GetTeamResources(teamID, "metal")
+		--local energy, energyStore = Spring.GetTeamResources(teamID, "energy")
 
-		Spring.SetTeamResource(teamID, "energy", teamInfo.start_energy or (START_ENERGY + energy))
-		Spring.SetTeamResource(teamID, "metal", teamInfo.start_metal or (START_METAL + metal))
+		--Spring.SetTeamResource(teamID, "energy", teamInfo.start_energy or (START_ENERGY + energy))
+		--Spring.SetTeamResource(teamID, "metal", teamInfo.start_metal or (START_METAL + metal))
 
 		if GG.Overdrive then
 			GG.Overdrive.AddInnateIncome(allyTeamID, INNATE_INC_METAL, INNATE_INC_ENERGY)
@@ -497,13 +497,13 @@ local function IsTeamResigned(team)
 	return true
 end
 
-local function GetPregameUnitStorage(teamID)
+--[[local function GetPregameUnitStorage(teamID)
 	local storage = 0
 	for i = 1, #storageUnits do
 		storage = storage + Spring.GetTeamUnitDefCount(teamID, storageUnits[i].unitDefID) * storageUnits[i].storeAmount
 	end
 	return storage
-end
+end]]
 
 function gadget:GameStart()
 	if Spring.Utilities.tobool(Spring.GetGameRulesParam("loadedGame")) then
@@ -516,13 +516,13 @@ function gadget:GameStart()
 		
 		-- clear resources
 		-- actual resources are set depending on spawned unit and setup
-		if not loadGame then
+		--[[if not loadGame then
 			local pregameUnitStorage = (campaignBattleID and GetPregameUnitStorage(team)) or 0
 			Spring.SetTeamResource(team, "es", pregameUnitStorage + HIDDEN_STORAGE)
 			Spring.SetTeamResource(team, "ms", pregameUnitStorage + HIDDEN_STORAGE)
 			Spring.SetTeamResource(team, "energy", 0)
 			Spring.SetTeamResource(team, "metal", 0)
-		end
+		end]]
 
 		--check if player resigned before game started
 		local _,playerID,_,isAI = spGetTeamInfo(team, false)
