@@ -14,27 +14,7 @@ if not (gadgetHandler:IsSyncedCode()) then
 	return
 end
 
-local ploppables = {
-  "factoryhover",
-  "factoryveh",
-  "factorytank",
-  "factoryshield",
-  "factorycloak",
-  "factoryamph",
-  "factoryjump",
-  "factoryspider",
-  "factoryship",
-  "factoryplane",
-  "factorygunship",
-}
-
-local ploppableDefs = {}
-for i = 1, #ploppables do
-	local ud = UnitDefNames[ploppables[i]]
-	if ud and ud.id then
-		ploppableDefs[ud.id] = true
-	end
-end
+include("LuaRules/Configs/start_facplops.lua")
 
 local spGetAllUnits = Spring.GetAllUnits
 local spGetUnitRulesParam = Spring.GetUnitRulesParam
@@ -51,24 +31,31 @@ local spPlaySoundFile = Spring.PlaySoundFile
 local spGetGameFrame = Spring.GetGameFrame
 local spGetUnitCurrentCommand = Spring.GetUnitCurrentCommand
 local spEcho = Spring.Echo
+local spGetUnitDefID = Spring.GetUnitDefID
 local spIsCheatingEnabled = Spring.IsCheatingEnabled
 local IN_LOS = {inlos = true}
+
+local modOptions = Spring.GetModOptions()
+local campaignBattleID = modOptions.singleplayercampaignbattleid
 
 local facplopsremaining = 0
 local debugMode = false
 local CampaignSafety = false
 
-if VFS.FileExists("mission.lua") then
+if VFS.FileExists("mission.lua") or campaignBattleID then
 	CampaignSafety = true
+end
 	
-	function GG.GiveFacplop(unitID)(unitID) -- no longer deprecated due to how ShamanPlop's automatic shutoff works.
-		facplopsremaining = facplopsremaining + 1
-		spSetUnitRulesParam(unitID, "facplop", 1, IN_LOS)
-		if facplopsremaining > 0 then
-			gadgetHandler:UpdateCallIn('UnitCreated')
-		end
+function GG.GiveFacplop(unitID) -- no longer deprecated due to how ShamanPlop's automatic shutoff works. Can also be used by map mods.
+	facplopsremaining = facplopsremaining + 1
+	local ud = UnitDefs[spGetUnitDefID(unitID)]
+	if not ud.isBuilder and not ud.isMobileBuilder then
+		return
 	end
-
+	spSetUnitRulesParam(unitID, "facplop", 1, IN_LOS)
+	if facplopsremaining == 1 and not CampaignSafety then
+		gadgetHandler:UpdateCallIn('UnitCreated')
+	end
 end
 
 function gadget:UnitCreated(unitID, unitDefID, unitTeam, builderID)
@@ -84,7 +71,7 @@ function gadget:UnitCreated(unitID, unitDefID, unitTeam, builderID)
 			spEcho("Facplop: " .. unitID)
 		end
 		spSetUnitRulesParam(builderID, "facplop", 0, IN_LOS)
-		spSetUnitRulesParam(unitID,"ploppee",1, IN_LOS)
+		spSetUnitRulesParam(unitID, "ploppee",1, IN_LOS)
 		local _, _, cmdTag = spGetUnitCurrentCommand(builderID)
 		spGiveOrderToUnit(builderID, CMD.REMOVE, cmdTag, CMD.OPT_ALT)
 		local maxHealth = select(2,spGetUnitHealth(unitID))
