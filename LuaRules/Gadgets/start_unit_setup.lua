@@ -55,7 +55,7 @@ if (gadgetHandler:IsSyncedCode()) then
 --------------------------------------------------------------------------------
 -- Functions shared between missions and non-missions
 
-local function CheckOrderRemoval() -- FIXME: maybe we can remove polling every frame and just remove the orders directly
+--[[local function CheckOrderRemoval() -- FIXME: maybe we can remove polling every frame and just remove the orders directly
 	if not ordersToRemove then
 		return
 	end
@@ -66,7 +66,7 @@ local function CheckOrderRemoval() -- FIXME: maybe we can remove polling every f
 		end
 	end
 	ordersToRemove = nil
-end
+end]]
 
 --[[local function CheckFacplopUse(unitID, unitDefID, teamID, builderID)
 	if ploppableDefs[unitDefID] and (select(5, Spring.GetUnitHealth(unitID)) < 0.1) and (builderID and Spring.GetUnitRulesParam(builderID, "facplop") == 1) then
@@ -397,7 +397,7 @@ local function SpawnStartUnit(teamID, playerID, isAI, bonusSpawn, notAtTheStartO
 
 		if (udef.customParams.level and udef.name ~= "chickenbroodqueen") and
 			((not campaignBattleID) or GG.GalaxyCampaignHandler.HasFactoryPlop(teamID)) then
-			Spring.SetUnitRulesParam(unitID, "facplop", 1, {inlos = true})
+			GG.GiveFacplop(unitID)
 		end
 		
 		local name = "noname" -- Backup for when player does not choose a commander and then resigns.
@@ -455,7 +455,7 @@ local function StartUnitPicked(playerID, name)
 		end
 		]]
 	end
-	GG.startUnits[teamID] = GetStartUnit(teamID) -- ctf compatibility
+	GG.startUnits[teamID] = GetStartUnit(teamID) -- ctf compatibility (ctf no longer exists, but a debug command uses it.)
 end
 
 local function workAroundSpecsInTeamZero(playerlist, team)
@@ -593,12 +593,14 @@ end
 GG.SetStartLocation = SetStartLocation
 
 function gadget:RecvLuaMsg(msg, playerID)
-	if msg:find("faction:",1,true) then
+	--[[if msg:find("faction:",1,true) then -- useless code. nothing interacts with this.
 		local side = msg:sub(9)
 		playerSides[playerID] = side
 		commChoice[playerID] = nil	-- unselect existing custom comm, if any
 		StartUnitPicked(playerID, side)
-	elseif msg:find("customcomm:",1,true) then
+	else]]
+	
+	if msg:find("customcomm:",1,true) then
 		local name = msg:sub(12)
 		commChoice[playerID] = name
 		StartUnitPicked(playerID, name)
@@ -638,7 +640,7 @@ function gadget:RecvLuaMsg(msg, playerID)
 end
 
 function gadget:GameFrame(n)
-	CheckOrderRemoval()
+	--CheckOrderRemoval()
 	if n == (COMM_SELECT_TIMEOUT) then
 		for team in pairs(waitingForComm) do
 			local _,playerID = spGetTeamInfo(team, false)

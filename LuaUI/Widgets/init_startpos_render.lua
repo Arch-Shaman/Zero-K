@@ -8,8 +8,17 @@ function widget:GetInfo()
 		layer     = -1,
 		enabled   = true,
 		alwaysStart = true,
+		handler = true,
 	}
 end
+
+--[[local modOptions = Spring.GetModOptions()
+
+if modOptions.singleplayercampaignbattleid then
+	Spring.Echo("StartHandler is using legacy start handler.")
+	widgetHandler:RemoveWidget(widget)
+	return
+end]]
 
 --Spring.IsAABBInView
 
@@ -24,6 +33,7 @@ local glTranslate = gl.Translate
 local glRotate = gl.Rotate
 local glUnitShape = gl.UnitShape
 local glPopMatrix = gl.PopMatrix
+local glDrawGroundCircle = gl.DrawGroundCircle
 local glText = gl.Text
 local spEcho = Spring.Echo
 local spGetTeamColor = Spring.GetTeamColor
@@ -34,6 +44,10 @@ local spGetTeamInfo = Spring.GetTeamInfo
 local spSendLuaRulesMsg = Spring.SendLuaRulesMsg
 local knownCommanderStarts = {} -- teamID = {[num] = {x=x,y=y,z=z,def=UnitDefID}} NB: Teams may have multiple commanders. (See: commshare, uneven teams, etc)
 local startPoses = 0
+
+local function Echo(txt)
+	spEcho("[StartPosAPI] Rendering: " .. txt)
+end
 
 local function DrawCommander(uDefID, teamID, ux, uy, uz, startposnum) -- borrowed this from initial queue.
 	local r,g,b,a = spGetTeamColor(teamID)
@@ -49,14 +63,19 @@ local function DrawCommander(uDefID, teamID, ux, uy, uz, startposnum) -- borrowe
 	glDepthTest(GL.LEQUAL)
 	glDepthMask(true)
 	glLighting(true)
-	glPushMatrix()
-		glLoadIdentity()
-		glTranslate(ux, uy, uz)
-		glRotate(0, 0, 1, 0)
-		glUnitShape(uDefID, teamID, false, false, false)
-	glPopMatrix()
+	if uDefID ~= '?' and uDefID ~= nil then
+		glPushMatrix()
+			glLoadIdentity()
+			glTranslate(ux, uy, uz)
+			glRotate(0, 0, 1, 0)
+			glUnitShape(uDefID, teamID, false, false, false)
+		glPopMatrix()
+	end
 	local sx, sy, sz = spWorldToScreenCoords(ux,uy,uz)
 	if sx then
+		if uDefID == nil or uDefID == '?' then
+			glDrawGroundCircle(ux,uy,uz, 20,8)
+		end
 		glColor(r,g,b,a)
 		glText(name,sx,sz,'co')
 		glColor(1,1,1,1)
@@ -75,9 +94,22 @@ local function CheckIfExists(teamID,id)
 	end
 end
 
-local function StartUpdated(unitdef,teamID, x,y,z,commid) -- note playerID can be 
+local function StartUnitUpdate(teamID, commid, unitdef)
 	if knownCommanderStarts[teamID] == nil then
 		knownCommanderStarts[teamID] = {[1] = {x = x, y = y, z = z, def = unitdef, id = commid}}
+	else
+		local index = CheckIfExists(teamID, commid)
+		if index then
+			knownCommanderStarts[teamID][index].def = unitdef
+		else
+			knownCommanderStarts[teamID][#knownCommanderStarts[teamID]+1] = {x = x, y = y, z = z, def = unitdef, id = commid}
+		end
+	end
+end
+
+local function StartUpdated(teamID, x,y,z,commid) -- note playerID can be 
+	if knownCommanderStarts[teamID] == nil then
+		knownCommanderStarts[teamID] = {[1] = {x = x, y = y, z = z, def = '?', id = commid}}
 		startPoses = startPoses + 1
 	else
 		local index = CheckIfExists(teamID, commid)
@@ -85,9 +117,8 @@ local function StartUpdated(unitdef,teamID, x,y,z,commid) -- note playerID can b
 			knownCommanderStarts[teamID][index].x = x
 			knownCommanderStarts[teamID][index].y = y
 			knownCommanderStarts[teamID][index].z = z
-			knownCommanderStarts[teamID][index].def = unitdef
 		else
-			knownCommanderStarts[teamID][#knownCommanderStarts[teamID]+1] = {x = x, y = y, z = z, def = unitdef, id = commid}
+			knownCommanderStarts[teamID][#knownCommanderStarts[teamID]+1] = {x = x, y = y, z = z, def = '?', id = commid}
 		end
 	end
 	if WG then
@@ -109,6 +140,9 @@ function widget:DrawWorld()
 end
 
 local function Shutdown()
+	Echo("Removing renderer.")
+	widgetHandler:DeregisterGlobal('StartPosUpdate')
+	widgetHandler:DeregisterGlobal('StartUnitUpdate')
 	widgetHandler:RemoveWidget(widget)
 	WG.StartPositions = nil
 end
@@ -117,11 +151,17 @@ function widget:GameStart()
 	Shutdown()
 end
 
+function widget:PlayerChanged(playerID) -- change out with player changed team later on.
+	if playerID == myID then
+		spSendLuaRulesMsg('startpos playerchanged')
+	end
+end
+
 function widget:Initialize()
 	if spGetGameFrame() > 0 then
-		spEcho("game started. stopping startpos render.")
 		Shutdown()
 	end
 	widgetHandler:RegisterGlobal('StartPosUpdate',StartUpdated)
+	widgetHandler:RegisterGlobal('StartUnitUpdate',StartUnitUpdate)
 	spSendLuaRulesMsg("startpos resend") -- tell syncland i crashed or restarted.
 end

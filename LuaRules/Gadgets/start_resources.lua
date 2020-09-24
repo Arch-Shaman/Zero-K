@@ -17,6 +17,7 @@ end
 local storagedefs = {}
 include("LuaRules/Configs/constants.lua")
 include("LuaRules/Configs/start_resources.lua")
+local mission = VFS.FileExists("mission.lua")
 
 local loaded = false
 local spGetTeamUnitDefCount = Spring.GetTeamUnitDefCount
@@ -63,12 +64,8 @@ function gadget:Load()
 	loaded = true
 end
 
-if VFS.FileExists("mission.lua") then -- this is a mission, we just want to set starting storage (and enable facplopping)
-	if tobool(Spring.GetGameRulesParam("loadedGame")) or loaded then
-		return
-	end
-	
-	function gadget:Initialize()
+function gadget:Initialize()
+	if not (tobool(Spring.GetGameRulesParam("loadedGame")) or loaded) and mission then
 		local teamlist = spGetTeamList()
 		for i=1, #teamlist do
 			local teamID = teamlist[i]
@@ -76,18 +73,12 @@ if VFS.FileExists("mission.lua") then -- this is a mission, we just want to set 
 			spSetTeamResource(teamID, "es", START_STORAGE + HIDDEN_STORAGE)
 			spSetTeamResource(teamID, "ms", START_STORAGE + HIDDEN_STORAGE)
 		end
-		gadgetHandler:RegisterGlobal('GiveStartResources', GiveStartResources)
-	end
-else
-	function gadget:Initialize()
-		if tobool(Spring.GetGameRulesParam("loadedGame")) then
-			return
-		end
+	elseif not (tobool(Spring.GetGameRulesParam("loadedGame")) or loaded) and not mission then
 		local teamlist = Spring.GetTeamList()
 		for i=1, #teamlist do
 			local teamID = teamlist[i]
 			SetupStorage(teamID)
 		end
-		gadgetHandler:RegisterGlobal('GiveStartResources', GiveStartResources)
 	end
+	gadgetHandler:RegisterGlobal('GiveStartResources', GiveStartResources)
 end

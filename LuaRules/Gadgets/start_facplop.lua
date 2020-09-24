@@ -44,10 +44,10 @@ local debugMode = false
 local CampaignSafety = false
 
 if VFS.FileExists("mission.lua") or campaignBattleID then
-	CampaignSafety = true
+	CampaignSafety = true -- don't turn off the UnitCreated callin just in case. This can be removed later on when these changes are stable.
 end
 	
-function GG.GiveFacplop(unitID) -- no longer deprecated due to how ShamanPlop's automatic shutoff works. Can also be used by map mods.
+function GG.GiveFacplop(unitID) -- no longer deprecated due to how ShamanPlop's automatic shutoff works. Could become a global instead via Script.LuaRules.GiveFacPlop but this would involve rewriting who knows how many missions.
 	facplopsremaining = facplopsremaining + 1
 	local ud = UnitDefs[spGetUnitDefID(unitID)]
 	if not ud.isBuilder and not ud.isMobileBuilder then
@@ -60,22 +60,16 @@ function GG.GiveFacplop(unitID) -- no longer deprecated due to how ShamanPlop's 
 end
 
 function gadget:UnitCreated(unitID, unitDefID, unitTeam, builderID)
-	if spGetGameFrame() < 3 and UnitDefs[unitDefID].customParams.commtype then
-		facplopsremaining = facplopsremaining + 1
-		if debugMode then
-			spEcho("Facplops left: " .. facplopsremaining)
-		end
-	end
 	if ploppableDefs[unitDefID] and builderID and spGetUnitRulesParam(builderID, "facplop") == 1 then
 		facplopsremaining = facplopsremaining - 1
 		if debugMode then
-			spEcho("Facplop: " .. unitID)
+			spEcho("Facplop: " .. unitID .. " (remaining: " .. facplopsremaining .. ")")
 		end
 		spSetUnitRulesParam(builderID, "facplop", 0, IN_LOS)
 		spSetUnitRulesParam(unitID, "ploppee",1, IN_LOS)
 		local _, _, cmdTag = spGetUnitCurrentCommand(builderID)
 		spGiveOrderToUnit(builderID, CMD.REMOVE, cmdTag, CMD.OPT_ALT)
-		local maxHealth = select(2,spGetUnitHealth(unitID))
+		local _, maxHealth = spGetUnitHealth(unitID)
 		spSetUnitHealth(unitID, {health = maxHealth, build = 1})
 		local x, y, z = spGetUnitPosition(unitID)
 		spSpawnCEG("teleport_in", x, y, z)
@@ -96,8 +90,11 @@ function gadget:UnitCreated(unitID, unitDefID, unitTeam, builderID)
 		end
 		str = str .. ",END_PLOP"
 		spSendCommands("wbynum 255 " .. str)
-		spPlaySoundFile("Teleport2", 10, x, y, z) -- this is fine now because of preloading (hopefully)
+		spPlaySoundFile("Teleport2", 10, x, y, z) -- this is fine now because of preloading
 		if facplopsremaining == 0 and not CampaignSafety then
+			if debugMode then
+				spEcho("No facplops remaining. Disabling UnitCreated.")
+			end
 			gadgetHandler:RemoveCallin('UnitCreated')
 		end
 	end
