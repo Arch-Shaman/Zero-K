@@ -90,6 +90,12 @@ local Sounds = {
 			pitchmod = 0.1,
 			gainmod = 0.05,
 		},
+		Tacnuke_launch = {
+			file = "sounds/weapon/missile/tacnuke_launch.wav",
+			pitchmod = 0,
+			gainmod = 0,
+			maxconcurrent = 30,
+		},
 	},
 }
 
