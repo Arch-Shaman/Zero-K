@@ -42,14 +42,16 @@ local spGetPlayerInfo = Spring.GetPlayerInfo
 local spWorldToScreenCoords = Spring.WorldToScreenCoords
 local spGetTeamInfo = Spring.GetTeamInfo
 local spSendLuaRulesMsg = Spring.SendLuaRulesMsg
-local knownCommanderStarts = {} -- teamID = {[num] = {x=x,y=y,z=z,def=UnitDefID}} NB: Teams may have multiple commanders. (See: commshare, uneven teams, etc)
-local startPoses = 0
+local startpos = {}
 
 local function Echo(txt)
 	spEcho("[StartPosAPI] Rendering: " .. txt)
 end
 
 local function DrawCommander(uDefID, teamID, ux, uy, uz, startposnum) -- borrowed this from initial queue.
+	if ux == 0 and uz == 0 then -- default position
+		return
+	end
 	local r,g,b,a = spGetTeamColor(teamID)
 	local textZ = uz - 10
 	local textY = spGetGroundHeight(ux,textZ)
@@ -94,74 +96,71 @@ local function CheckIfExists(teamID,id)
 	end
 end
 
-local function StartUnitUpdate(teamID, commid, unitdef)
-	if knownCommanderStarts[teamID] == nil then
-		knownCommanderStarts[teamID] = {[1] = {x = x, y = y, z = z, def = unitdef, id = commid}}
-	else
-		local index = CheckIfExists(teamID, commid)
-		if index then
-			knownCommanderStarts[teamID][index].def = unitdef
+local function StartUpdated(teamID)
+	local starts = spGetTeamRulesParam(teamID, "startpos_num")
+	if starts then
+		if startpos[teamID] then
+			for i = 1, starts do
+				startpos[teamID][i].x = spGetTeamRulesParam(teamID, "startpos_" .. i .. "_x") or 0
+				startpos[teamID][i].z = spGetTeamRulesParam(teamID, "startpos_" .. i .. "_z") or 0
+				startpos[teamID][i].def = spGetTeamRulesParam(teamID, "startpos_ " .. i .. "_def") or '?'
+				startpos[teamID][i].y = spGetGroundHeight(startpos[teamID][i].x, startpos[teamID][i].z) or 0
+			end
 		else
-			knownCommanderStarts[teamID][#knownCommanderStarts[teamID]+1] = {x = x, y = y, z = z, def = unitdef, id = commid}
+			startpos[teamID] = {}
+			for i = 1, starts do
+				local x = spGetTeamRulesParam(teamID, "startpos_" .. i .. "_x") or 0
+				local z = spGetTeamRulesParam(teamID, "startpos_" .. i .. "_z") or 0
+				local y = spGetGroundHeight(x,z)
+				startpos[teamID][i] = {
+					x   = x,
+					y   = y,
+					z   = z,
+					def = spGetTeamRulesParam(teamID, "startpos_" .. i .. "_def") or '?',
+				}
+			end
+		if WG then
+			WG.StartPositions = startpos -- for other widgets.
 		end
-	end
-end
-
-local function StartUpdated(teamID, x,y,z,commid) -- note playerID can be 
-	if knownCommanderStarts[teamID] == nil then
-		knownCommanderStarts[teamID] = {[1] = {x = x, y = y, z = z, def = '?', id = commid}}
-		startPoses = startPoses + 1
-	else
-		local index = CheckIfExists(teamID, commid)
-		if index then
-			knownCommanderStarts[teamID][index].x = x
-			knownCommanderStarts[teamID][index].y = y
-			knownCommanderStarts[teamID][index].z = z
-		else
-			knownCommanderStarts[teamID][#knownCommanderStarts[teamID]+1] = {x = x, y = y, z = z, def = '?', id = commid}
-		end
-	end
-	if WG then
-		WG.StartPositions = knownCommanderStarts -- for other widgets.
 	end
 end
 
 function widget:DrawWorld()
-	if startPoses > 0 then
-		for id,startpos in pairs(knownCommanderStarts) do
-			if #startpos > 0 then
-				for i=1, #startpos do
-					local x,y,z = startpos[i].x, startpos[i].y,startpos[i].z
-					DrawCommander(startpos[i].def,id,x,y,z,i)
-				end
+	for teamID, starts in pairs(startpos) do
+		if #starts > 0 then
+			for i = 1, #starts do
+				local x, y, z = starts[i].x, starts[i].y, starts[i].z
+				DrawCommander(startpos[i].def, id, x, y, z, i)
 			end
 		end
 	end
 end
 
 local function Shutdown()
-	Echo("Removing renderer.")
-	widgetHandler:DeregisterGlobal('StartPosUpdate')
-	widgetHandler:DeregisterGlobal('StartUnitUpdate')
-	widgetHandler:RemoveWidget(widget)
-	WG.StartPositions = nil
+	Echo("[Startpos] Removing renderer. (Game Start!)")
+	widgetHandler:DeregisterGlobal('StartPosUpdate') -- no point in having this anymore.
+	widgetHandler:RemoveCallin('DrawWorld')
+	--widgetHandler:RemoveWidget(widget)
+	WG.Commshares = nil
 end
 
 function widget:GameStart()
 	Shutdown()
 end
 
-function widget:PlayerChanged(playerID) -- change out with player changed team later on.
-	if playerID == myID then
-		spSendLuaRulesMsg('startpos playerchanged')
-	end
-end
-
 function widget:Initialize()
 	if spGetGameFrame() > 0 then
 		Shutdown()
+		return
 	end
-	widgetHandler:RegisterGlobal('StartPosUpdate',StartUpdated)
-	widgetHandler:RegisterGlobal('StartUnitUpdate',StartUnitUpdate)
-	spSendLuaRulesMsg("startpos resend") -- tell syncland i crashed or restarted.
+	widgetHandler:RegisterGlobal('StartPosUpdate', StartUpdated)
+	local allys = spGetAllyTeamList()
+	for i = 1, #allys do
+		local allyteam = allys[i]
+		local teamlist = spGetTeamList(allyteam)
+		for t = 1, #teamlist do
+			startpos[teamID] = {}
+			StartUpdated(teamlist[t])
+		end
+	end
 end

@@ -46,12 +46,12 @@ local function SetupStorage(teamID)
 	spSetTeamResource(teamID, "metal", 0)
 end
 
-local function GiveStartResources(teamID)
+local function GiveStartResources(teamID) -- Called each time a commander spawns.
 	--Spring.Echo("Giving starting resources")
 	local metal = spGetTeamResources(teamID, "metal")
 	local energy = spGetTeamResources(teamID, "energy")
 	local teamInfo = teamID and select(7, spGetTeamInfo(teamID, true))
-	Spring.Echo("To give: " .. tostring(teamInfo.start_energy) .. " or " .. START_ENERGY + energy)
+	--Spring.Echo("To give: " .. tostring(teamInfo.start_energy) .. " or " .. START_ENERGY + energy)
 	spSetTeamResource(teamID, "energy", teamInfo.start_energy or (START_ENERGY + energy))
 	spSetTeamResource(teamID, "metal", teamInfo.start_metal or (START_METAL + metal))
 end

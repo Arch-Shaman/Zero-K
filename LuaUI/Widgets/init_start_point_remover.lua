@@ -18,6 +18,10 @@ local unitCount = 1 -- counter just in case there would be more than one unit sp
 
 local campaignBattleID = Spring.GetModOptions().singleplayercampaignbattleid
 
+local spGetUnitDefID = Spring.GetUnitDefID
+local spGetUnitPosition = Spring.GetUnitPosition
+local spMarkerErasePosition = Spring.MarkerErasePosition
+
 function widget:Initialize()
 	if (CheckForSpec()) then
 		return false
@@ -44,12 +48,13 @@ end
 function widget:GameFrame(f)
 	if f == 4 then
 		local teamUnits = Spring.GetTeamUnits(Spring.GetMyTeamID())
-		for _,unitID in ipairs(teamUnits) do
-		local unitDefID = Spring.GetUnitDefID(unitID)
-		local unitDef   = UnitDefs[unitDefID]
+		for i = 1, #teamUnits do
+			local unitID = teamUnits[i]
+			local unitDefID = spGetUnitDefID(unitID)
+			local unitDef   = UnitDefs[unitDefID]
 			if (unitDef.customParams.commtype) then
-				local x, y, z = Spring.GetUnitPosition(unitID)
-				Spring.MarkerErasePosition(x, y, z)
+				local x, y, z = spGetUnitPosition(unitID)
+				spMarkerErasePosition(x, y, z)
 				if not cameraMoved then
 					SetCameraTarget(x, y, z, 1, true, 1000)
 				end
@@ -57,10 +62,9 @@ function widget:GameFrame(f)
 				-- Do not select commander at the start of campaign battles. The selection UI can clip into the mission
 				-- objectives popup and often there are many units to select at the start.
 				if not campaignBattleID then
-					Spring.SelectUnitArray{teamUnits[unitCount]}
+					Spring.SelectUnitArray{teamUnits[i]}
 				end
 			end
-			unitCount = unitCount + 1
 		end
 	end
 	if f == 7 then

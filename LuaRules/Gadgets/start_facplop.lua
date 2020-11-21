@@ -35,6 +35,8 @@ local spGetUnitDefID = Spring.GetUnitDefID
 local spIsCheatingEnabled = Spring.IsCheatingEnabled
 local spSendCommands = Spring.SendCommands
 local IN_LOS = {inlos = true}
+local PRIVATE = {private = true}
+local SETHEALTH = {health = 0, build = 1} -- Table for facplop to set max health on.
 
 local modOptions = Spring.GetModOptions()
 local campaignBattleID = modOptions.singleplayercampaignbattleid
@@ -66,20 +68,16 @@ function gadget:UnitCreated(unitID, unitDefID, unitTeam, builderID)
 			spEcho("Facplop: " .. unitID .. " (remaining: " .. facplopsremaining .. ")")
 		end
 		spSetUnitRulesParam(builderID, "facplop", 0, IN_LOS)
-		spSetUnitRulesParam(unitID, "ploppee",1, IN_LOS)
+		spSetUnitRulesParam(unitID, "ploppee", 1, PRIVATE)
 		local _, _, cmdTag = spGetUnitCurrentCommand(builderID)
 		spGiveOrderToUnit(builderID, CMD.REMOVE, cmdTag, CMD.OPT_ALT)
 		local _, maxHealth = spGetUnitHealth(unitID)
-		spSetUnitHealth(unitID, {health = maxHealth, build = 1})
+		SETHEALTH.health = maxHealth
+		spSetUnitHealth(unitID, SETHEALTH)
 		local x, y, z = spGetUnitPosition(unitID)
 		spSpawnCEG("teleport_in", x, y, z)
-		-- Stats collection (actually not, see below)
-		if GG.mod_stats_AddFactoryPlop then
-			GG.mod_stats_AddFactoryPlop(unitTeam, unitDefID)
-		end
-		-- FIXME: temporary hack because I'm in a hurry
-		-- proper way: get rid of all the useless shit in modstats, reenable and collect plop stats that way (see above)
-		local _, playerID, _, isAI, _, allyTeam = spGetTeamInfo(unitTeam, false)
+		-- This is obsolete, but still live. See ZKDev chat.
+		--[[local _, playerID, _, isAI, _, allyTeam = spGetTeamInfo(unitTeam, false)
 		local facname = UnitDefs[unitDefID].name
 		local playername = spGetPlayerInfo(playerID, false) or "ChanServ"  -- ditto, different acc to differentiate
 		local str = "SPRINGIE:facplop," .. facname .. "," .. unitTeam .. "," .. allyTeam .. ","
@@ -89,7 +87,7 @@ function gadget:UnitCreated(unitID, unitDefID, unitTeam, builderID)
 			str = str .. playername
 		end
 		str = str .. ",END_PLOP"
-		spSendCommands("wbynum 255 " .. str)
+		spSendCommands("wbynum 255 " .. str)]]
 		spPlaySoundFile("Teleport2", 10, x, y, z) -- this is fine now because of preloading
 		if facplopsremaining == 0 and not CampaignSafety then
 			if debugMode then
