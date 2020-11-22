@@ -55,6 +55,7 @@ local soundIndex = SOUND_PERIOD
 --------------------------------------------------------------------------------------
 --------------------------------------------------------------------------------------
 local gun_1 = 1
+local aimWeaponLinger = 0
 
 --------------------------------------------------------------------------------------
 --------------------------------------------------------------------------------------
@@ -164,10 +165,8 @@ local function staticFloat_thread()
 	Turn(rfoot,x_axis, math.rad(10-20), math.rad(50))
 	
 	while true do
-		
 		Turn(lthigh,x_axis, math.rad(10+25), math.rad(37.5))
 		Turn(rthigh,x_axis, math.rad(10-25), math.rad(37.5))
-		
 		
 		Sleep(400)
 		
@@ -219,7 +218,6 @@ local function sinkFloat_thread()
 		EmitSfx(torso, SFX.BUBBLE)
 		Sleep(66)
 	end
-	
 end
 
 local function dustBottom()
@@ -352,10 +350,11 @@ end
 local function RestoreAfterDelay()
 	Signal(SIG_RESTORE)
 	SetSignalMask(SIG_RESTORE)
-	Sleep(5000)
+	Sleep(3000)
 	Turn(torso, y_axis, 0, math.rad(65))
 	Turn(lshoulder, x_axis, 0, math.rad(45))
 	Turn(rshoulder, x_axis, 0, math.rad(45))
+	aimWeaponLinger = 0
 end
 
 function script.AimFromWeapon()
@@ -363,25 +362,30 @@ function script.AimFromWeapon()
 end
 
 function script.AimWeapon(num, heading, pitch)
-	if num == 1 then
-		Signal(SIG_AIM1)
-		SetSignalMask(SIG_AIM1)
-		Turn(torso, y_axis, heading, math.rad(480))
-		Turn(lshoulder, x_axis, -pitch, math.rad(200))
-		Turn(rshoulder, x_axis, -pitch, math.rad(200))
-		WaitForTurn(torso, y_axis)
-		WaitForTurn(lshoulder, x_axis)
-		StartThread(RestoreAfterDelay)
-		return true
-	elseif num == 2 then
+	if aimWeaponLinger > 0 then
 		GG.Floating_AimWeapon(unitID)
-		return false
+		aimWeaponLinger = aimWeaponLinger - 1
 	end
+	Signal(SIG_AIM1)
+	SetSignalMask(SIG_AIM1)
+	Turn(torso, y_axis, heading, math.rad(480))
+	Turn(lshoulder, x_axis, -pitch, math.rad(200))
+	Turn(rshoulder, x_axis, -pitch, math.rad(200))
+	WaitForTurn(torso, y_axis)
+	WaitForTurn(lshoulder, x_axis)
+	StartThread(RestoreAfterDelay)
+	return true
 end
 
 function script.BlockShot(num, targetID)
 	local x,y,z = Spring.GetUnitPosition(unitID)
-	return y < UNDERWATER_DEPTH
+	GG.Floating_AimWeapon(unitID)
+	aimWeaponLinger = 5
+	if y < UNDERWATER_DEPTH then
+		return true
+	end
+	-- Lower than real damage (155) to help against Duck regen case.
+	return (targetID and GG.OverkillPrevention_CheckBlock(unitID, targetID, 142, 10)) and true or false
 end
 
 function script.QueryWeapon(num)
@@ -390,7 +394,13 @@ end
 
 function script.Shot(num)
 	GG.Floating_AimWeapon(unitID)
+	Move(firepoints[gun_1], z_axis, 4)
 	EmitSfx(firepoints[gun_1], 1024)
+	Move(firepoints[gun_1], z_axis, 0)
+end
+
+-- EndBurst so that the projectile fires from the correct gun
+function script.EndBurst()
 	gun_1 = 1 - gun_1
 end
 

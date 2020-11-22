@@ -1,4 +1,5 @@
 include "constants.lua"
+include "plates.lua"
 
 local base, turret, arm_1, arm_2, arm_3, nanobase, rightpiece, leftpiece, nanoemit, pad, nozzle, cylinder, back = piece ('base', 'turret', 'arm_1', 'arm_2', 'arm_3', 'nanobase', 'rightpiece', 'leftpiece', 'nanoemit', 'pad', 'nozzle', 'cylinder', 'back')
 
@@ -16,7 +17,7 @@ local function Open ()
 	WaitForTurn (nanobase, x_axis)
 
 	SetUnitValue (COB.YARD_OPEN, 1)
-	SetUnitValue (COB.INBUILDSTANCE, 1)
+	SetInBuildDistance(true)
 	SetUnitValue (COB.BUGGER_OFF, 1)
 end
 
@@ -26,7 +27,7 @@ local function Close()
 
 	SetUnitValue (COB.YARD_OPEN, 0)
 	SetUnitValue (COB.BUGGER_OFF, 0)
-	SetUnitValue (COB.INBUILDSTANCE, 0)
+	SetInBuildDistance(false)
 
 	Turn (arm_1, x_axis, 0, math.rad(34))
 	Turn (arm_2, x_axis, 0, math.rad(68))
@@ -68,7 +69,6 @@ function script.Killed (recentDamage, maxHealth)
 		return 1
 	else
 		Explode (back, SFX.SHATTER)
-		Explode (centre, SFX.SHATTER)
 		Explode (leftpiece, SFX.SHATTER)
 		Explode (rightpiece, SFX.SHATTER)
 		return 2

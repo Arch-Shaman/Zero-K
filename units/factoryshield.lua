@@ -5,6 +5,7 @@ return { factoryshield = {
   acceleration                  = 0,
   brakeRate                     = 0,
   buildCostMetal                = Shared.FACTORY_COST,
+  buildDistance                 = Shared.FACTORY_PLATE_RANGE,
   builder                       = true,
   buildingGroundDecalDecaySpeed = 30,
   buildingGroundDecalSizeX      = 12,
@@ -43,7 +44,7 @@ return { factoryshield = {
 
   energyUse                     = 0,
   explodeAs                     = [[LARGE_BUILDINGEX]],
-  footprintX                    = 6,
+  footprintX                    = 7,
   footprintZ                    = 9,
   iconType                      = [[facwalker]],
   idleAutoHeal                  = 5,
@@ -63,7 +64,7 @@ return { factoryshield = {
   turnRate                      = 0,
   useBuildingGroundDecal        = true,
   workerTime                    = Shared.FACTORY_BUILDPOWER,
-  yardMap                       = [[oooooo occcco occcco occcco occcco occcco yyyyyy yyyyyy yyyyyy]],
+  yardMap                       = [[ooooooo occccco occccco occccco occccco occccco yyyyyyy yyyyyyy yyyyyyy]],
 
   featureDefs                   = {
 

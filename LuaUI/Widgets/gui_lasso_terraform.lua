@@ -89,7 +89,10 @@ options = {
 	structure_holdMouse = {
 		name = "Terraform by holding mouse click",
 		type = "bool",
-		value = false,
+		value = false, --[[ disabled by default because it is easy to accidentally enable this UI;
+		                    having your mouse anchored to a spot on your screen because you click
+		                    and hold for too long (likely to happen if you want to line build, or
+		                    are considering options) is really bad if you don't know what is coming ]]
 		desc = "When enabled, holding down the left mouse button while placing a structure will enter height selection mode.",
 	},
 	structure_altSelect = {
@@ -1589,11 +1592,9 @@ function widget:MouseRelease(mx, my, button)
 				
 				local _, pos = spTraceScreenRay(mx, my, true, false, false, true)
 				if legalPos(pos) then
-					
 					if mouseUnit.id then
 						local ty, id = spTraceScreenRay(mx, my, false, false, false, true)
 						if ty == "unit" and id == mouseUnit.id then
-							
 							local x,_,z = spGetUnitPosition(mouseUnit.id)
 							local face = spGetUnitBuildFacing(mouseUnit.id)
 							
@@ -1707,7 +1708,6 @@ function widget:MouseRelease(mx, my, button)
 				local _, pos = spTraceScreenRay(mx, my, true, false, false, true)
 				local x,z
 				if legalPos(pos) then
-				
 					if mouseUnit.id and point[1].x == point[2].x and point[1].z == point[2].z then
 						local ty, id = spTraceScreenRay(mx, my, false, false, false, true)
 						if ty == "unit" and id == mouseUnit.id then
@@ -1742,7 +1742,9 @@ function widget:MouseRelease(mx, my, button)
 								loop = 0
 							end
 							
-							
+							if presetTerraHeight then
+								terraformHeight = presetTerraHeight
+							end
 							SendCommand()
 							local a,c,m,s = spGetModKeyState()
 							stopCommand(s)

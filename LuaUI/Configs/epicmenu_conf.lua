@@ -165,6 +165,7 @@ confdata.subMenuIcons = {
 	['Settings/Interface/Map']                      = imgPath..'epicmenu/map.png',
 	['Settings/Interface/Healthbars']               = imgPath..'commands/Bold/health.png',
 	['Settings/Interface/Retreat Zones']            = imgPath..'commands/Bold/retreat.png',
+	['Settings/Interface/Reclaim Highlight']        = imgPath..'epicmenu/reclaimfield.png',
 	['Settings/Interface/Spectating']               = imgPath..'epicmenu/popcorn.png',
 	['Settings/Interface/Building Placement']       = imgPath..'factory.png',
 	['Settings/Interface/Team Colors']              = imgPath..'map/minimap_colors_simple.png',
@@ -178,7 +179,7 @@ confdata.subMenuIcons = {
 	['Settings/Interface/Gesture Menu']             = imgPath..'epicmenu/stock_brightness.png',
 	['Settings/Interface/Economy Overlay']          = imgPath..'energy.png',
 	['Settings/Interface/Falling Units']            = imgPath..'advplayerslist/point2.png',
-	['Settings/Interface/Area Commands']            = imgPath..'commands/bold/areaattack.png',
+	['Settings/Interface/Commands']                 = imgPath..'commands/bold/attack.png',
 	
 	['Settings/HUD Panels/Minimap']                 = imgPath..'epicmenu/map.png',
 	['Settings/HUD Panels/Economy Panel']           = imgPath..'ibeam.png',
@@ -197,6 +198,8 @@ confdata.subMenuIcons = {
 confdata.simpleModeDirectory = {
 	['Reset Settings'] = true,
 	['Interface'] = true,
+	['Commands'] = true,
+	['Presets'] = true,
 	['Audio'] = true,
 	['Graphics'] = true,
 	['Camera'] = true,
@@ -386,6 +389,9 @@ local pathSelectionBluryHalo = 'Settings/Interface/Selection/Blurry Halo Selecti
 	ShButton(pathSelectionXrayHalo, 'Toggle Selection XRay&Halo', function() spSendCommands{"luaui togglewidget XrayHaloSelections"} end, "Highlights bodies of selected units")
 	ShButton(pathSelectionPlatters, 'Toggle Team Platters', function() spSendCommands{"luaui togglewidget TeamPlatter"} end, "Puts team-coloured disk below units")
 	ShButton(pathSelectionBluryHalo, 'Toggle Blurry Halo Selections', function() spSendCommands{"luaui togglewidget Selection BlurryHalo"} end, "Places blurry halo around selected units")
+
+local pathReclaimHighlight = "Settings/Interface/Reclaim Highlight"
+	ShButton(pathReclaimHighlight, 'Toggle Field Summary', function() spSendCommands{"luaui togglewidget Reclaim Field Highlight"} end, "Draws shapes around fields of reclaim, and shows their equivalent metal value")
 
 local pathGesture = 'Settings/Interface/Gesture Menu'
 	ShButton(pathGesture, 'Toggle gesture menu', function() spSendCommands{"luaui togglewidget Chili Gesture Menu"} end, "Enable/disable gesture build menu.")
@@ -589,7 +595,11 @@ local pathAudio = 'Settings/Audio'
 		min = 0,
 		max = 100,
 		springsetting = 'snd_volmaster',
-		OnChange = function(self) spSendCommands{"set snd_volmaster " .. self.value} end,
+		OnChange = function(self)
+			if WG.crude and WG.crude.SetMasterVolume then
+				WG.crude.SetMasterVolume(self.value)
+			end
+		end,
 		simpleMode = true,
 		everyMode = true,
 	})
@@ -646,14 +656,9 @@ local pathAudio = 'Settings/Audio'
 		-- springsetting = 'snd_volmusic', -- TODO: we should probably switch from WG to this at some point
 		value = WG.music_volume or 0.5,
 		OnChange = function(self)
-			if (WG.music_start_volume or 0 > 0) then
-				Spring.SetSoundStreamVolume(self.value / WG.music_start_volume)
-			else
-				Spring.SetSoundStreamVolume(self.value)
+			if WG.crude and WG.crude.SetMusicVolume then
+				WG.crude.SetMusicVolume(self.value)
 			end
-			local prevValue = WG.music_volume
-			--settings.music_volume = self.value
-			WG.music_volume = self.value
 		end,
 		simpleMode = true,
 		everyMode = true,
