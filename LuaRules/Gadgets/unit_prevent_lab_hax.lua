@@ -258,10 +258,10 @@ function gadget:UnitCreated(unitID, unitDefID,teamID)
 		end
 		
 		local featureExpulsionParameters = {
-			minx - 0.1,
-			minz - 0.1,
-			maxx + 0.1,
-			maxz + 0.1,
+			minx - 5,
+			minz - 5,
+			maxx + 5,
+			maxz + 5,
 			miny,
 			maxy,
 		}
