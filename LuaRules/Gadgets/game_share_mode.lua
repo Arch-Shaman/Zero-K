@@ -488,6 +488,9 @@ local function DisposePlayer(playerID) -- clean up this player. Called 1 frame a
 		return
 	end
 	local name = spGetPlayerInfo(playerID, false)
+	if playerstates[playerID] == nil then -- already disposed.
+		return
+	end
 	local teamid = playerstates[playerID].teamid
 	if debugMode then
 		spEcho("[Commshare] Disposing of player " .. name)
