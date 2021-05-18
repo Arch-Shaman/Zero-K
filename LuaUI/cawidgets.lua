@@ -21,6 +21,8 @@ local resetWidgetDetailLevel = false -- has widget detail level changed
 local ORDER_VERSION = 8 --- change this to reset enabled/disabled widgets
 local DATA_VERSION = 9 -- change this to reset widget settings
 
+local PROFILE_INIT = false
+
 local vfs = VFS
 local vfsInclude = vfs.Include
 local vfsGame = vfs.GAME
@@ -54,6 +56,14 @@ CheckLUAFileAndBackup(CONFIG_FILENAME)
 local HANDLER_BASENAME = "cawidgets.lua"
 local SELECTOR_BASENAME = 'selector.lua'
 
+local lastTime = PROFILE_INIT and Spring.GetTimer()
+local function TimeLoad(name)
+	if PROFILE_INIT then
+		local timeDiff = Spring.DiffTimers(Spring.GetTimer(), lastTime)
+		Spring.Echo(name, timeDiff)
+		lastTime = Spring.GetTimer()
+	end
+end
 
 do
 	local isMission = Game.modDesc:find("Mission Mutator")
@@ -442,11 +452,13 @@ local function InitPlayerData(playerID)
 end
 
 function widgetHandler:Initialize()
+	TimeLoad("==== widgetHandler Begin ====")
 	local gaia = Spring.GetGaiaTeamID()
 	local playerList = Spring.GetPlayerList()
 	for i = 1, #playerList do
 		playerstate[playerList[i]] = InitPlayerData(playerList[i])
 	end
+	
 	-- Add ignorelist --
 	--Spring.Echo("Spring.GetMyPlayerID()", Spring.GetMyPlayerID())
 	local customkeys = select(10, Spring.GetPlayerInfo(Spring.GetMyPlayerID(), true))
@@ -466,8 +478,12 @@ function widgetHandler:Initialize()
 		end
 	end
 	customkeys = nil
+	TimeLoad("Add ignorelist")
+	
 	self:LoadOrderList()
+	TimeLoad("LoadOrderList")
 	self:LoadConfigData()
+	TimeLoad("LoadConfigData")
 	
 	local autoModWidgets = Spring.GetConfigInt('LuaAutoModWidgets', 1)
 	self.autoModWidgets = (autoModWidgets ~= 0)
@@ -477,14 +493,17 @@ function widgetHandler:Initialize()
 
 	local unsortedWidgets = {}
 	
+	TimeLoad("Start loading widget files")
 	-- stuff the widgets into unsortedWidgets
 	local widgetFiles = VFS.DirList(WIDGET_DIRNAME, "*.lua", VFSMODE)
 	for k, wf in ipairs(widgetFiles) do
 		local widget = self:LoadWidget(wf)
+		TimeLoad("LoadWidget " .. wf)
 		if (widget) then
 			table.insert(unsortedWidgets, widget)
 		end
 	end
+	TimeLoad("End loading widget files")
 	
 	-- sort the widgets
 	table.sort(unsortedWidgets, function(w1, w2)
@@ -503,6 +522,7 @@ function widgetHandler:Initialize()
 			return (n1 < n2)
 		end
 	end)
+	TimeLoad("sort the widgets")
 
 	-- first add the api widgets
 	for _, w in ipairs(unsortedWidgets) do
@@ -511,6 +531,7 @@ function widgetHandler:Initialize()
 			
 			local name = w.whInfo.name
 			local basename = w.whInfo.basename
+			TimeLoad("Add widget " .. name)
 			Spring.Echo(string.format("Loaded API widget:  %-18s  <%s>", name, basename))
 		end
 	end
@@ -522,13 +543,16 @@ function widgetHandler:Initialize()
 		
 			local name = w.whInfo.name
 			local basename = w.whInfo.basename
+			TimeLoad("Add widget " .. name)
 			Spring.Echo(string.format("Loaded widget:  %-18s  <%s>", name, basename))
 		end
 	end
 	
 	-- save the active widgets, and their ordering
 	self:SaveOrderList()
+	TimeLoad("SaveOrderList")
 	self:SaveConfigData()
+	TimeLoad("SaveConfigData")
 end
 
 
@@ -677,13 +701,13 @@ function widgetHandler:NewWidget()
 			self.mouseOwner = nil
 		end
 	end
-	wh.Ignore = function (_, name) 
+	wh.Ignore = function (_, name)
 		if not ignorelist.ignorees[name] then
 			ignorelist.ignorees[name] = true
 			ignorelist.count = ignorelist.count + 1
 		end
 	end
-	wh.Unignore = function (_, name) 
+	wh.Unignore = function (_, name)
 		ignorelist.ignorees[name] = nil
 		ignorelist.count = ignorelist.count - 1
 	end
@@ -1116,6 +1140,20 @@ local function FindLowestIndex(t, i, layer)
 	return 1
 end
 
+local function GetPlayerAbilityToSpecchat(playerID)
+	-- this function controls when players can bypass the specmute modoption.
+	local cp = select(10, Spring.GetPlayerInfo(playerID))
+	local boss = cp["room_boss"] or "0"
+	local admin = cp.admin or "0"
+	local helpful = cp.helpful or "0"
+	if boss == "1" or admin == "1" or helpful == "1" then
+		return true
+	else
+		return false
+	end
+end
+
+
 
 function widgetHandler:RaiseWidget(widget)
 	if (widget == nil) then
@@ -1416,14 +1454,17 @@ function widgetHandler:AddConsoleLine(msg, priority)
 		local newMsg = { text = msg, priority = priority }
 		MessageProcessor:ProcessConsoleLine(newMsg) --chat_preprocess.lua
 		if newMsg.msgtype ~= 'other' and newMsg.msgtype ~= 'autohost' and newMsg.msgtype ~= 'userinfo' and newMsg.msgtype ~= 'game_message' then
-			if MUTE_SPECTATORS and newMsg.msgtype == 'spec_to_everyone' then
-				local spectating = select(1, Spring.GetSpectatingState())
-				if not spectating then
-					return
-				end
-				newMsg.msgtype = 'spec_to_specs'
-			end
 			local playerID_msg = newMsg.player and newMsg.player.id --retrieve playerID from message.
+			if MUTE_SPECTATORS and newMsg.msgtype == 'spec_to_everyone' then
+				local bypass = false
+				if playerID_msg then
+					bypass = GetPlayerAbilityToSpecchat(playerID_msg)
+				end
+				local spectating = select(1, Spring.GetSpectatingState())
+				if spectating and not bypass then -- admins and room bosses (see: tournament hosters) can bypass specmute.
+					newMsg.msgtype = 'spec_to_specs' -- for some reason the return here was doing weird things.
+				end
+			end
 			local customkeys = select(10, Spring.GetPlayerInfo(playerID_msg))
 			if customkeys and (customkeys.muted or (newMsg.msgtype == 'spec_to_everyone' and ((customkeys.can_spec_chat or '1') == '0'))) then
 				local myPlayerID = Spring.GetLocalPlayerID()
@@ -1576,9 +1617,20 @@ end
 
 
 function widgetHandler:DrawWorld()
+	--local doEcho = math.random() > 0.01
+	--if doEcho then
+	--	local enabled, params = gl.GetFixedState("blending")
+	--	Spring.Echo("enabled, params", enabled, params, "Initial")
+	--	Spring.Utilities.TableEcho(params, "params")
+	--end
 	for _, w in r_ipairs(self.DrawWorldList) do
 		gl.Fog(true)
 		w:DrawWorld()
+		--if doEcho then
+		--	local enabled, params = gl.GetFixedState("blending")
+		--	Spring.Echo("enabled, params", enabled, params, w:GetInfo().name)
+		--	Spring.Utilities.TableEcho(params, "params")
+		--end
 	end
 	gl.Fog(false)
 end
