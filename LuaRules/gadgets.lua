@@ -27,12 +27,14 @@ local GADGETS_DIR = Script.GetName():gsub('US$', '') .. '/Gadgets/'
 local SCRIPT_DIR = Script.GetName() .. '/'
 
 local ECHO_DESCRIPTIONS = false
+local SYNC_MEMORY_DEBUG = false --(gcinfo or false)
 
 local VFSMODE = VFS.ZIP_ONLY
 if (Spring.IsDevLuaEnabled()) then
   VFSMODE = VFS.RAW_ONLY
 end
 
+VFS.Include('LuaRules/engine_compat.lua',   nil, VFSMODE)
 VFS.Include(HANDLER_DIR .. 'setupdefs.lua', nil, VFSMODE)
 VFS.Include(HANDLER_DIR .. 'system.lua',    nil, VFSMODE)
 VFS.Include(HANDLER_DIR .. 'callins.lua',   nil, VFSMODE)
@@ -129,6 +131,9 @@ local callInLists = {
 	-- Feature CallIns
 	"FeatureCreated",
 	"FeatureDestroyed",
+	--[[ FeatureDamaged and FeaturePreDamaged missing on purpose. Basic damage control
+	     can be achieved via armordefs (use the "default" class, make sure to populate
+	     the others including "else" explicitly) so this way we avoid the perf cost. ]]
 
 	-- Projectile CallIns
 	"ProjectileCreated",
@@ -193,6 +198,13 @@ local callInLists = {
 	"DrawScreenPost",
 	"DrawScreen",
 	"DrawInMiniMap",
+	'DrawOpaqueUnitsLua',
+	'DrawOpaqueFeaturesLua',
+	'DrawAlphaUnitsLua',
+	'DrawAlphaFeaturesLua',
+	'DrawShadowUnitsLua',
+	'DrawShadowFeaturesLua',
+
 	"RecvFromSynced",
 
 	-- moved from LuaUI
@@ -299,11 +311,15 @@ function gadgetHandler:Initialize()
   end
 
   -- stuff the gadgets into unsortedGadgets
+  local wantYield = Spring.Yield and Spring.Yield()
   for k,gf in ipairs(gadgetFiles) do
 --    Spring.Echo('gf2 = ' .. gf) -- FIXME
     local gadget = self:LoadGadget(gf)
     if (gadget) then
       table.insert(unsortedGadgets, gadget)
+    end
+    if wantYield then
+      Spring.Yield()
     end
   end
 
@@ -341,6 +357,12 @@ end
 
 
 function gadgetHandler:LoadGadget(filename)
+  local kbytes = 0
+  if SYNC_MEMORY_DEBUG then-- only present in special debug builds, otherwise gcinfo is not preset in synced context!
+    collectgarbage("collect") -- call it twice, mark
+    collectgarbage("collect") -- sweep
+    kbytes = gcinfo() 
+  end
   local basename = Basename(filename)
   local text = VFS.LoadFile(filename, VFSMODE)
   if (text == nil) then
@@ -362,7 +384,7 @@ function gadgetHandler:LoadGadget(filename)
     Spring.Log(HANDLER_BASENAME, LOG.ERROR, 'Failed to load: ' .. basename .. '  (' .. err .. ')')
     return nil
   end
-  if (err == false) then
+  if (err == false) then -- note that all "normal" gadgets return `nil` implicitly at EOF, so don't do "if not err"
     return nil -- gadget asked for a quiet death
   end
 
@@ -430,7 +452,12 @@ function gadgetHandler:LoadGadget(filename)
   if info and ECHO_DESCRIPTIONS then
     Spring.Echo(filename, info.name, info.desc)
   end
-
+  
+  if SYNC_MEMORY_DEBUG and kbytes > 0 then 
+    collectgarbage("collect") -- mark
+    collectgarbage("collect") -- sweep
+    Spring.Echo("LoadGadget\t" .. filename .. "\t" .. (gcinfo() - kbytes) .. "\t" .. gcinfo() .. "\t" .. (IsSyncedCode() and 1 or 0))
+  end
   return gadget
 end
 
@@ -563,7 +590,7 @@ local function ArrayInsert(t, f, g)
       if (v == g) then
         return -- already in the table
       end
-    
+
       -- insert-sort the gadget based on its layer
       -- note: reversed value ordering, highest to lowest
       -- iteration over the callin lists is also reversed
@@ -1876,13 +1903,55 @@ function gadgetHandler:DrawInMiniMap(mmsx, mmsy)
   return
 end
 
+function gadgetHandler:DrawOpaqueUnitsLua(deferredPass, drawReflection, drawRefraction)
+	for _, g in r_ipairs(self.DrawOpaqueUnitsLuaList) do
+		g:DrawOpaqueUnitsLua(deferredPass, drawReflection, drawRefraction)
+	end
+	return
+end
+
+function gadgetHandler:DrawOpaqueFeaturesLua(deferredPass, drawReflection, drawRefraction)
+	for _, g in r_ipairs(self.DrawOpaqueFeaturesLuaList) do
+		g:DrawOpaqueFeaturesLua(deferredPass, drawReflection, drawRefraction)
+	end
+	return
+end
+
+function gadgetHandler:DrawAlphaUnitsLua(drawReflection, drawRefraction)
+	for _, g in r_ipairs(self.DrawAlphaUnitsLuaList) do
+		g:DrawAlphaUnitsLua(drawReflection, drawRefraction)
+	end
+	return
+end
+
+function gadgetHandler:DrawAlphaFeaturesLua(drawReflection, drawRefraction)
+	for _, g in r_ipairs(self.DrawAlphaFeaturesLuaList) do
+		g:DrawAlphaFeaturesLua(drawReflection, drawRefraction)
+	end
+	return
+end
+
+function gadgetHandler:DrawShadowUnitsLua()
+	for _, g in r_ipairs(self.DrawShadowUnitsLuaList) do
+		g:DrawShadowUnitsLua()
+	end
+	return
+end
+
+function gadgetHandler:DrawShadowFeaturesLua()
+	for _, g in r_ipairs(self.DrawShadowFeaturesLuaList) do
+		g:DrawShadowFeaturesLua()
+	end
+	return
+end
+
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-function gadgetHandler:KeyPress(key, mods, isRepeat, label, unicode)
+function gadgetHandler:KeyPress(key, mods, isRepeat, label, unicode, scanCode)
   for _,g in r_ipairs(self.KeyPressList) do
-    if (g:KeyPress(key, mods, isRepeat, label, unicode)) then
+    if (g:KeyPress(key, mods, isRepeat, label, unicode, scanCode)) then
       return true
     end
   end
@@ -1890,9 +1959,9 @@ function gadgetHandler:KeyPress(key, mods, isRepeat, label, unicode)
 end
 
 
-function gadgetHandler:KeyRelease(key, mods, label, unicode)
+function gadgetHandler:KeyRelease(key, mods, label, unicode, scanCode)
   for _,g in r_ipairs(self.KeyReleaseList) do
-    if (g:KeyRelease(key, mods, label, unicode)) then
+    if (g:KeyRelease(key, mods, label, unicode, scanCode)) then
       return true
     end
   end
@@ -2027,7 +2096,7 @@ function gadgetHandler:AllowCommand(unitID, unitDefID, unitTeam, cmdID, cmdParam
 	if not AllowCommandParams(cmdParams, playerID) then
 		return false
 	end
-	
+
 	if not Script.IsEngineMinVersion(104, 0, 1431) then
 		fromSynced = playerID
 		playerID = nil

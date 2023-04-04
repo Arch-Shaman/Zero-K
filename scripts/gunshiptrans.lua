@@ -82,6 +82,10 @@ function ForceDropUnit()
 	StartThread(script.EndTransport) --formalize unit drop (finish animation, clear tag, ect)
 end
 
+function OnStartingCrash()
+	ForceDropUnit()
+end
+
 --fetch unit id of passenger (from the load command)
 function getPassengerId()
 	local cmd = Spring.GetCommandQueue(unitID, 1)
@@ -215,7 +219,7 @@ function script.BeginTransport(passengerID)
 	end
 	Move(link, y_axis, -Spring.GetUnitHeight(passengerID), nil, true)
 	
-	if not GG.TransportAllowed(passengerID) then
+	if not GG.TransportAllowed(unitID, passengerID) then
 		Sleep(10)
 		unitLoaded = passengerID
 		ForceDropUnit()

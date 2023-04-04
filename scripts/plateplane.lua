@@ -29,17 +29,17 @@ local function Open ()
 	Turn(nano2, y_axis, 0.3, 0.35)
 	Sleep(650)
 
-	SetUnitValue (COB.YARD_OPEN, 1)
+	SetUnitValue(COB.YARD_OPEN, 1)
 	SetInBuildDistance(true)
-	SetUnitValue (COB.BUGGER_OFF, 1)
+	--SetUnitValue(COB.BUGGER_OFF, 1)
 end
 
 local function Close()
 	Signal (1)
 	SetSignalMask (1)
 	
-	SetUnitValue (COB.YARD_OPEN, 0)
-	SetUnitValue (COB.BUGGER_OFF, 0)
+	SetUnitValue(COB.YARD_OPEN, 0)
+	--SetUnitValue(COB.BUGGER_OFF, 0)
 	SetInBuildDistance(false)
 
 	Move(plate1, z_axis, 0, 3.2)
@@ -85,11 +85,6 @@ function script.Create()
 		buildprogress = select(5, Spring.GetUnitHealth(unitID))
 	end
 	StartThread(padchange)
-end
-
-function script.QueryNanoPiece ()
-	GG.LUPS.QueryNanoPiece (unitID, unitDefID, Spring.GetUnitTeam(unitID), nano1)
-	return nano1
 end
 
 function script.Activate ()

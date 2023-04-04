@@ -66,6 +66,13 @@ function Spring.Utilities.MergeWithDefault(default, override)
 	return new
 end
 
+function Spring.Utilities.PermuteList(list)
+	for i = #list, 2, -1 do
+		local j = math.random(i)
+		list[i], list[j] = list[j], list[i]
+	end
+end
+
 function Spring.Utilities.TableToString(data, key)
 	 local dataType = type(data)
 	-- Check the type
@@ -105,7 +112,7 @@ local function MakeRealTable(proxy, debugTag)
 	end
 	local proxyLocal = proxy
 	local ret = {}
-	for i,v in spairs(proxyLocal) do
+	for i,v in pairs(proxyLocal) do
 		if type(v) == "table" then
 			ret[i] = MakeRealTable(v)
 		else

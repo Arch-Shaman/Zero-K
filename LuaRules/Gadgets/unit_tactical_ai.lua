@@ -47,6 +47,7 @@ local GiveClampedOrderToUnit = Spring.Utilities.GiveClampedOrderToUnit
 local GetEffectiveWeaponRange = Spring.Utilities.GetEffectiveWeaponRange
 
 local unitDefRanges = {}
+local unitDefRealRanges = {}
 local armedUnitDefIDs = {}
 for i = 1, #UnitDefs do
 	if not UnitDefs[i].modCategories["unarmed"] then
@@ -58,8 +59,13 @@ local ALLY_TABLE = {
 	ally = true,
 }
 
+local DEBUG_NAME = "TACTICAL AI"
+
 local AGGRESSIVE_FRAMES = 80
 local AVOID_HEIGHT_DIFF = 25
+
+local UPDATE_RATE = 20
+local MAX_UPRATE_RATE = 2
 
 local unitAIBehaviour = include("LuaRules/Configs/tactical_ai_defs.lua")
 
@@ -73,7 +79,13 @@ local externallyHandledUnit = {}
 
 local aggressiveTarget = {}
 
+local needNextUpdate = false
+
 local HEADING_TO_RAD = (math.pi*2/2^16)
+
+local debugAll = false
+local debugAction = false
+local debugUnit = false
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -98,6 +110,8 @@ local unitAICmdDesc = {
 	tooltip = 'Toggles smart unit AI for the unit',
 	params  = {0, 'AI Off', 'AI On'}
 }
+
+local stateCommands = include("LuaRules/Configs/state_commands.lua")
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -137,16 +151,25 @@ end
 
 local function GetEnemyRange(enemyDefID)
 	if not unitDefRanges[enemyDefID] then
-		unitDefRanges[enemyDefID] = UnitDefs[enemyDefID].maxWeaponRange
+		local ud = UnitDefs[enemyDefID]
+		unitDefRanges[enemyDefID] = (ud.customParams.percieved_range and tonumber(ud.customParams.percieved_range)) or ud.maxWeaponRange
 	end
 	return unitDefRanges[enemyDefID]
+end
+
+local function GetEnemyRealRange(enemyDefID)
+	if not unitDefRealRanges[enemyDefID] then
+		local ud = UnitDefs[enemyDefID]
+		unitDefRealRanges[enemyDefID] = ud.maxWeaponRange
+	end
+	return unitDefRealRanges[enemyDefID]
 end
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 ---- Unit AI Utilities
 
-local function GetUnitOrderState(unitID, unitData, cmdID, cmdOpts, cp_1, cp_2, cp_3, holdPos)
+local function GetUnitOrderState(unitID, unitData, cmdID, cmdOpts, cp_1, cp_2, cp_3, cmdTag, holdPos)
 	-- ret 1: enemy ID, value of -1 means no manual target set so the nearest enemy should be used.
 	--        Return false means the unit does not want orders from tactical ai.
 	-- ret 2: true if there is a move command at the start of queue which will need removal.
@@ -162,14 +185,14 @@ local function GetUnitOrderState(unitID, unitData, cmdID, cmdOpts, cp_1, cp_2, c
 		end
 		return false -- no queue and on hold position.
 	end
-	if (holdPos and cmdID == CMD_ATTACK and Spring.Utilities.CheckBit(gadget:GetInfo().name, cmdOpts, CMD.OPT_INTERNAL)) then
+	if (holdPos and cmdID == CMD_ATTACK and Spring.Utilities.CheckBit(DEBUG_NAME, cmdOpts, CMD.OPT_INTERNAL)) then
 		if spGetCommandQueue(unitID, 0) == 1 then
 			return false -- set to hold position and is auto-acquiring target
 		end
 	end
 	
 	if cmdID == CMD_FIGHT then
-		return -1, false, true, nil, cp_1, cp_2, cp_3
+		return -1, false, true, nil, nil, cp_1, cp_2, cp_3
 	elseif cmdID == CMD_ATTACK then -- if I attack
 		local cmdID_2 = Spring.GetUnitCurrentCommand(unitID, 2)
 		if ((not holdPos) or (cmdID_2 == CMD_FIGHT)) then
@@ -177,16 +200,16 @@ local function GetUnitOrderState(unitID, unitData, cmdID, cmdOpts, cp_1, cp_2, c
 			if twoParams then
 				if (cmdID == CMD_FIGHT) then
 					--  if I target the ground and have fight or patrol comman
-					return -1, false, nil, nil, cp_1, cp_2, cp_3
+					return -1, false, nil, nil, nil, cp_1, cp_2, cp_3
 				end
 			else
 				-- if I target a unit
 				if (cmdID == CMD_FIGHT or cmdID_2 == CMD_FIGHT) then
 					-- Do not skirm single target with FIGHT
-					return -1, false, true, spValidUnitID(target) and target 
-				elseif Spring.Utilities.CheckBit(gadget:GetInfo().name, cmdOpts, CMD.OPT_INTERNAL) then
+					return -1, false, true, spValidUnitID(target) and target, cmdTag
+				elseif Spring.Utilities.CheckBit(DEBUG_NAME, cmdOpts, CMD.OPT_INTERNAL) then
 					-- Do no skirm single target when it is auto attack
-					return -1, false, false, spValidUnitID(target) and target
+					return -1, false, false, spValidUnitID(target) and target, cmdTag
 				elseif spValidUnitID(target) then
 					-- only skirm single target when given the order manually
 					return target, false
@@ -194,7 +217,7 @@ local function GetUnitOrderState(unitID, unitData, cmdID, cmdOpts, cp_1, cp_2, c
 			end
 		end
 	elseif (cmdID == CMD_MOVE or cmdID == CMD_RAW_MOVE) and (cp_1 == unitData.cx) and (cp_2 == unitData.cy) and (cp_3 == unitData.cz) then
-		local cmdID_2, cmdOpts_2, _, cps_1, cps_2, cps_3 = Spring.GetUnitCurrentCommand(unitID, 2)
+		local cmdID_2, cmdOpts_2, cmdTag_2, cps_1, cps_2, cps_3 = Spring.GetUnitCurrentCommand(unitID, 2)
 		if not cmdID_2 then
 			return -1, true
 		end
@@ -204,19 +227,19 @@ local function GetUnitOrderState(unitID, unitData, cmdID, cmdOpts, cp_1, cp_2, c
 			if twoParams then
 				if (cmdID_2 == CMD_FIGHT) then
 					-- if I target the ground and have fight or patrol command
-					return -1, true, true, nil, cps_1, cps_2, cps_3
+					return -1, true, true, nil, nil, cps_1, cps_2, cps_3
 				end
 			elseif spValidUnitID(target) then -- if I target a unit
 				-- if I target a unit
-				if (cmdID_2 == CMD_FIGHT or cmdID_3 == CMD_FIGHT) then 
+				if (cmdID_2 == CMD_FIGHT or cmdID_3 == CMD_FIGHT) then
 					-- Do not skirm single target with FIGHT
-					return -1, true, true, target, cps_1, cps_2, cps_3
-				elseif Spring.Utilities.CheckBit(gadget:GetInfo().name, cmdOpts_2, CMD.OPT_INTERNAL) then
+					return -1, true, true, target, cmdTag_2, cps_1, cps_2, cps_3
+				elseif Spring.Utilities.CheckBit(DEBUG_NAME, cmdOpts_2, CMD.OPT_INTERNAL) then
 					-- Do no skirm single target when it is auto attack
-					return -1, true, false, target, cps_1, cps_2, cps_3
+					return -1, true, false, target, cmdTag_2, cps_1, cps_2, cps_3
 				else
 					-- only skirm single target when given the order manually
-					return target, true, false, nil, cps_1, cps_2, cps_3 
+					return target, true, false, nil, nil, cps_1, cps_2, cps_3
 				end
 			end
 		end
@@ -231,7 +254,7 @@ local function ClearOrder(unitID, unitData, cmdID, cmdTag, cp_1, cp_2, cp_3)
 	if unitData.receivedOrder then
 		if (cmdID and (cmdID == CMD_MOVE or cmdID == CMD_RAW_MOVE)) then -- if I am moving
 			if (cp_1 == unitData.cx) and (cp_2 == unitData.cy) and (cp_3 == unitData.cz) then -- if I was given this move command by this gadget
-				spGiveOrderToUnit(unitID, CMD_REMOVE, {cmdTag}, 0 )
+				spGiveOrderToUnit(unitID, CMD_REMOVE, cmdTag, 0)
 				GG.StopRawMoveUnit(unitID, true)
 			end
 		end
@@ -276,45 +299,75 @@ local function CheckTargetAggression(enemy, frame)
 	return true
 end
 
-local function UpdateIdleAgressionState(unitID, behaviour, unitData, frame, enemy, enemyRange, enemyDist, ux, uz, ex, ez)
+local function UpdateIdleAgressionState(unitID, behaviour, unitData, frame, enemy, enemyUnitDefID, defaultEnemyRange, enemyDist, ux, uz, ex, ez, ignoreCloseEnemyAggress)
 	-- This function uses three locations (enemypos, unitpos, unit idle pos) and decides to do one of three things
-	-- * Stop fighting, via ReturnUnitToIdlePos(unitID, unitData, true, frame)
+	-- * Stop fighting, via SetIdleAgression(unitID, unitData, true, frame)
 	-- * Stop fleeing, via ReturnUnitToIdlePos(unitID, unitData, true)
 	-- * Nothing
 	if not unitData.idleX then
 		return true
 	end
 	
+	local enemyRange = defaultEnemyRange
+	if enemyUnitDefID then
+		enemyRange = GetEnemyRealRange(enemyUnitDefID)
+	end
+	
+	local doDebug = (debugUnit and debugUnit[unitID]) or debugAll
+	if doDebug then
+		Spring.Echo("=== Update Idle Aggresion", unitID, " ===")
+		Spring.Utilities.UnitEcho(unitID, "unit")
+		if enemy and enemy ~= -1 then
+			Spring.Utilities.UnitEcho(enemy, "enemy")
+		end
+	end
+	
 	if not unitData.idleAgression then
 		if CheckTargetAggression(enemy, frame) then
 			SetIdleAgression(unitID, unitData, enemy, frame)
-			--Spring.Utilities.UnitEcho(unitID, "A")
+			if doDebug then
+				Spring.Utilities.UnitEcho(unitID, "A")
+			end
 			return true
 		end
-		--Spring.Utilities.UnitEcho(unitID, "O")
 	end
 	
 	local myIdleDistSq = DistSq(unitData.idleX, unitData.idleZ, ux, uz)
 	--Spring.Utilities.UnitEcho(unitID, "C")
-	--Spring.Echo("enemyRange", math.floor(enemyRange), math.floor(enemyDist), math.floor(behaviour.idleCommitDist), "ux, uz, ex, ez", math.floor(ux), math.floor(uz), math.floor(ex), math.floor(ez), "Distances", math.floor(math.sqrt(behaviour.idlePushAggressDistSq)), math.floor(math.sqrt(myIdleDistSq)), math.floor(math.sqrt(DistSq(unitData.idleX, unitData.idleZ, ex, ez))), math.random())
-	
 	local enemyIdleDistSq = DistSq(unitData.idleX, unitData.idleZ, ex, ez)
 	local enemyPushingMe = (enemyIdleDistSq < myIdleDistSq) or (enemyIdleDistSq < enemyRange^2)
 	unitData.wantFightReturn = enemyPushingMe -- Return with fight if you need to return through an enemy
 	
-	if enemyDist < enemyRange or behaviour.idlePushAggressDistSq < myIdleDistSq then
-		local myIdleDist = math.sqrt(myIdleDistSq) 
+	if doDebug then
+		Spring.Echo("enemyRange", math.floor(enemyRange), "enemyDist", math.floor(enemyDist), "range", math.floor(enemyRange), "commit", math.floor(behaviour.idleCommitDist))
+		Spring.Echo("ux, uz, ex, ez", math.floor(ux), math.floor(uz), math.floor(ex), math.floor(ez))
+		Spring.Echo("agress", math.floor(math.sqrt(behaviour.idlePushAggressDistSq)), "meToIdle", math.floor(math.sqrt(myIdleDistSq)), "enemyToIdle", math.floor(math.sqrt(DistSq(unitData.idleX, unitData.idleZ, ex, ez))))
+		Spring.Echo("Check 1", enemyDist < enemyRange, behaviour.idlePushAggressDistSq < myIdleDistSq)
+		Spring.Echo("Check 2", enemyPushingMe, enemyDist*behaviour.idleEnemyDistMult + math.sqrt(myIdleDistSq) *behaviour.idleCommitDistMult < behaviour.idleCommitDist)
+		Spring.Echo("Check 3", behaviour.idleChaseEnemyLeeway < math.sqrt(myIdleDistSq))
+	end
+	
+	-- Do not switch from flee to skirm unless pushed as it is often a bad idea.
+	local ignoreCloseEnemyAggress = enemyUnitDefID and (behaviour.skirms and behaviour.skirms[enemyUnitDefID] and not (behaviour.hugs and behaviour.hugs[enemyUnitDefID]))
+	
+	if (enemyDist < enemyRange and not ignoreCloseEnemyAggress) or behaviour.idlePushAggressDistSq < myIdleDistSq then
+		local myIdleDist = math.sqrt(myIdleDistSq)
 		if enemyPushingMe or enemyDist*behaviour.idleEnemyDistMult + myIdleDist*behaviour.idleCommitDistMult < behaviour.idleCommitDist then
 			-- I am further from where I started than my enemy, or I am already committed to fighting (to a point). Agress.
 			SetIdleAgression(unitID, unitData, enemy, frame)
+			if doDebug then
+				Spring.Echo("Set Aggression")
+			end
 		elseif behaviour.idleChaseEnemyLeeway < myIdleDist then
 			-- Enemy is not blocking my retreat to idle pos, retreat.
 			ReturnUnitToIdlePos(unitID, unitData, true)
+			if doDebug then
+				Spring.Echo("Set Return")
+			end
 		end
 	end
 	return false
 end
-
 
 local function GetAiExitEarly(unitID, unitData, behaviour)
 	if (unitData.active) and (spGetUnitRulesParam(unitID, "disable_tac_ai") ~= 1) then
@@ -327,13 +380,45 @@ local function GetAiExitEarly(unitID, unitData, behaviour)
 	return true
 end
 
+local function UpdateJink(behaviour, unitData)
+	if not behaviour.jinkPeriod then
+		unitData.jinkDir = unitData.jinkDir*-1
+		return
+	end
+	unitData.jinkAccumulator = (unitData.jinkAccumulator or 0) + 1
+	if unitData.jinkAccumulator >= behaviour.jinkPeriod then
+		unitData.jinkAccumulator = unitData.jinkAccumulator - behaviour.jinkPeriod
+		unitData.jinkDir = unitData.jinkDir*-1
+	end
+end
+
+local function UpdateJinkRotation(behaviour, unitData)
+	if not behaviour.jinkPeriod then
+		unitData.rot = unitData.rot*-1
+		return
+	end
+	unitData.jinkAccumulator = (unitData.jinkAccumulator or 0) + 1
+	if unitData.jinkAccumulator >= behaviour.jinkPeriod then
+		unitData.jinkAccumulator = 0
+		unitData.rot = unitData.rot*-1
+	end
+end
+
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 ---- Unit AI Execution
 
 local function DoSwarmEnemy(unitID, behaviour, unitData, enemy, enemyUnitDef, typeKnown, move, isIdleAttack, cmdID, cmdTag, fightX, fightY, fightZ, frame)
 	local unitData = unit[unitID]
-
+	
+	local doDebug = (debugUnit and debugUnit[unitID]) or debugAll
+	if debugAction or doDebug then
+		if doDebug then
+			Spring.Echo(" === DoSwarmEnemy", unitID, "===")
+		end
+		Spring.Utilities.UnitEcho(unitID, "Swarm")
+	end
+	
 	if not (enemy and typeKnown) then
 		if not (((cmdID == CMD_FIGHT) or move) and fightZ) then
 			return false
@@ -343,9 +428,7 @@ local function DoSwarmEnemy(unitID, behaviour, unitData, enemy, enemyUnitDef, ty
 		local cx, cy, cz -- command position
 		
 		local pointDis = Dist(ex, ez, ux, uz)
-		
-		-- insert move commands to jink towards enemy
-		unitData.jinkDir = unitData.jinkDir*-1
+		UpdateJink(behaviour, unitData)
 		
 		-- jink towards the enemy
 		if behaviour.localJinkOrder and behaviour.jinkParallelLength < pointDis then
@@ -360,7 +443,7 @@ local function DoSwarmEnemy(unitID, behaviour, unitData, enemy, enemyUnitDef, ty
 		
 		if move then
 			spGiveOrderToUnit(unitID, CMD_INSERT, {0, CMD_RAW_MOVE, CMD_OPT_INTERNAL, cx, cy, cz }, CMD.OPT_ALT )
-			spGiveOrderToUnit(unitID, CMD_REMOVE, {cmdTag}, 0 )
+			spGiveOrderToUnit(unitID, CMD_REMOVE, cmdTag, 0 )
 		else
 			spGiveOrderToUnit(unitID, CMD_INSERT, {0, CMD_RAW_MOVE, CMD_OPT_INTERNAL, cx, cy, cz }, CMD.OPT_ALT )
 		end
@@ -390,12 +473,15 @@ local function DoSwarmEnemy(unitID, behaviour, unitData, enemy, enemyUnitDef, ty
 	local cx, cy, cz -- command position
 	
 	if isIdleAttack then
-		UpdateIdleAgressionState(unitID, behaviour, unitData, frame, enemy, enemyRange, pointDis, ux, uz, ex, ez)
+		if doDebug then
+			Spring.Echo("=== DoSwarmEnemy Idle", unitID, " ===")
+		end
+		
+		UpdateIdleAgressionState(unitID, behaviour, unitData, frame, enemy, typeKnown and enemyUnitDef, behaviour.swarmEnemyDefaultRange, pointDis, ux, uz, ex, ez)
 	end
 	
 	if behaviour.maxSwarmRange < pointDis then -- if I cannot shoot at the enemy
-		-- insert move commands to jink towards enemy
-		unitData.jinkDir = unitData.jinkDir*-1
+		UpdateJink(behaviour, unitData)
 		
 		-- jink towards the enemy
 		if behaviour.localJinkOrder and behaviour.jinkParallelLength < pointDis then
@@ -411,7 +497,7 @@ local function DoSwarmEnemy(unitID, behaviour, unitData, enemy, enemyUnitDef, ty
 		GG.recursion_GiveOrderToUnit = true
 		if move then
 			cx, cy, cz = GiveClampedOrderToUnit(unitID, CMD_INSERT, {0, CMD_RAW_MOVE, CMD_OPT_INTERNAL, cx, cy, cz }, CMD.OPT_ALT )
-			spGiveOrderToUnit(unitID, CMD_REMOVE, {cmdTag}, 0 )
+			spGiveOrderToUnit(unitID, CMD_REMOVE, cmdTag, 0 )
 		else
 			cx, cy, cz = GiveClampedOrderToUnit(unitID, CMD_INSERT, {0, CMD_RAW_MOVE, CMD_OPT_INTERNAL, cx, cy, cz }, CMD.OPT_ALT )
 		end
@@ -439,9 +525,9 @@ local function DoSwarmEnemy(unitID, behaviour, unitData, enemy, enemyUnitDef, ty
 				cx = ux + unitData.rot*(uz-ez)*behaviour.strafeOrderLength/pointDis
 				cy = uy
 				cz = uz - unitData.rot*(ux-ex)*behaviour.strafeOrderLength/pointDis
-				unitData.rot = unitData.rot*-1
+				UpdateJinkRotation(behaviour, unitData)
 			else
-				unitData.jinkDir = unitData.jinkDir*-1 -- jink away
+				UpdateJink(behaviour, unitData)
 				cx = ux-(-(ux-ex)*behaviour.jinkAwayParallelLength-(uz-ez)*unitData.jinkDir*behaviour.jinkTangentLength)/pointDis
 				cy = uy
 				cz = uz-(-(uz-ez)*behaviour.jinkAwayParallelLength+(ux-ex)*unitData.jinkDir*behaviour.jinkTangentLength)/pointDis
@@ -451,7 +537,7 @@ local function DoSwarmEnemy(unitID, behaviour, unitData, enemy, enemyUnitDef, ty
 		GG.recursion_GiveOrderToUnit = true
 		if move then
 			cx, cy, cz = GiveClampedOrderToUnit(unitID, CMD_INSERT, {0, CMD_RAW_MOVE, CMD_OPT_INTERNAL, cx, cy, cz }, CMD.OPT_ALT )
-			spGiveOrderToUnit(unitID, CMD_REMOVE, {cmdTag}, 0 )
+			spGiveOrderToUnit(unitID, CMD_REMOVE, cmdTag, 0 )
 		else
 			cx, cy, cz = GiveClampedOrderToUnit(unitID, CMD_INSERT, {0, CMD_RAW_MOVE, CMD_OPT_INTERNAL, cx, cy, cz }, CMD.OPT_ALT )
 		end
@@ -471,7 +557,18 @@ local function DoSkirmEnemy(unitID, behaviour, unitData, enemy, enemyUnitDef, ty
 	local ex, ey, ez, _, aimY = spGetUnitPosition(enemy, false, true) -- enemy position
 	local ux, uy, uz = spGetUnitPosition(unitID) -- my position
 
+	local doDebug = (debugUnit and debugUnit[unitID]) or debugAll
+	if debugAction or doDebug then
+		if doDebug then
+			Spring.Echo(" === DoSkirmEnemy", unitID, "===")
+		end
+		Spring.Utilities.UnitEcho(unitID, "Skirm")
+	end
+
 	if not (ex and vx) then
+		if doDebug then
+			Spring.Echo("return not (ex and vx)")
+		end
 		return behaviour.skirmKeepOrder
 	end
 	
@@ -479,6 +576,9 @@ local function DoSkirmEnemy(unitID, behaviour, unitData, enemy, enemyUnitDef, ty
 	
 	if enemyUnitDef and behaviour.avoidHeightDiff and behaviour.avoidHeightDiff[enemyUnitDef] then
 		if ey - uy > AVOID_HEIGHT_DIFF or ey - uy < -AVOID_HEIGHT_DIFF then
+			if doDebug then
+				Spring.Echo("return AVOID_HEIGHT_DIFF", ey, uy, AVOID_HEIGHT_DIFF)
+			end
 			return behaviour.skirmKeepOrder
 		end
 	end
@@ -502,27 +602,37 @@ local function DoSkirmEnemy(unitID, behaviour, unitData, enemy, enemyUnitDef, ty
 		dx, dy, dz = dx - uvx*behaviour.velocityPrediction, dy - uvy*behaviour.velocityPrediction, dz - uvz*behaviour.velocityPrediction
 	end
 	
-	local eDistSq = ex^2 + ey^2 + ez^2
+	local eDistSq = ex^2 + ez^2
 	local eDist = sqrt(eDistSq)
+	local bonusSkirmRange = enemyUnitDef and behaviour.bonusRangeUnits and behaviour.bonusRangeUnits[enemyUnitDef]
 	
 	-- Scalar projection of prediction vector onto enemy vector
-	local predProj = (ex*dx + ey*dy + ez*dz)/eDistSq
+	local predProj = (ex*dx + ez*dz)/eDistSq
 
 	-- Calculate predicted enemy distance
 	local predictedDist = eDist
 	if predProj > 0 then
-		predictedDist = predictedDist*predProj
+		if predProj > 1 then
+			if bonusSkirmRange then
+				-- Do nothing as we really want to avoid this unit
+			elseif behaviour.velPredChaseFactor then
+				predictedDist = predictedDist*((predProj - 1)*behaviour.velPredChaseFactor + 1)
+			else
+				predictedDist = predictedDist*predProj
+			end
+		else
+			predictedDist = predictedDist*predProj
+		end
 	else
 		-- In this case the enemy is predicted to go past me
 		predictedDist = 0
 	end
 	
 	if isIdleAttack then
-		local enemyRange = 250
-		if enemyUnitDef and typeKnown then
-			enemyRange = GetEnemyRange(enemyUnitDef)
+		if (debugUnit and debugUnit[unitID]) or debugAll then
+			Spring.Echo("=== DoSkirmEnemy", unitID, " ===")
 		end
-		UpdateIdleAgressionState(unitID, behaviour, unitData, frame, enemy, enemyRange, predictedDist, ux, uz, origEx, origEz)
+		UpdateIdleAgressionState(unitID, behaviour, unitData, frame, enemy, typeKnown and enemyUnitDef, 250, predictedDist, ux, uz, origEx, origEz)
 	end
 	
 	local skirmRange = (doHug and behaviour.hugRange) or ((GetEffectiveWeaponRange(unitData.udID, -dy, behaviour.weaponNum) or 0) - behaviour.skirmLeeway)
@@ -538,16 +648,24 @@ local function DoSkirmEnemy(unitID, behaviour, unitData, enemy, enemyUnitDef, ty
 		end
 	end
 	
+	if doDebug then
+		Spring.Echo("doHug or skirmRange > predictedDist", doHug, skirmRange, predictedDist)
+		Spring.Echo("GetEffectiveWeaponRange", GetEffectiveWeaponRange(unitData.udID, -dy, behaviour.weaponNum), unitData.udID, -dy, behaviour.weaponNum)
+	end
+	
 	--Spring.Echo("skirmRange", skirmRange, "pred", predictedDist, "frame", Spring.GetGameFrame())
 	if doHug or skirmRange > predictedDist then
 		if behaviour.skirmOnlyNearEnemyRange then
 			local enemyRange = (GetEffectiveWeaponRange(enemyUnitDef, dy, behaviour.weaponNum) or 0) + behaviour.skirmOnlyNearEnemyRange
-			if enemyRange < predictedDist then
+			if enemyRange and enemyRange < predictedDist then
+				if doDebug then
+					Spring.Echo("return enemyRange < predictedDist", enemyRange, predictedDist)
+				end
 				return behaviour.skirmKeepOrder
 			end
 		end
 		
-		if (not doHug) and (behaviour.skirmBlockedApproachOnFight or not haveFightAndHoldPos) and behaviour.skirmBlockedApproachFrames then
+		if (not doHug) and (not bonusSkirmRange) and (behaviour.skirmBlockedApproachOnFight or not haveFightAndHoldPos) and behaviour.skirmBlockedApproachFrames then
 			if not reloadFrames then
 				local reloadState = spGetUnitWeaponState(unitID, behaviour.weaponNum, 'reloadState')
 				if reloadState then
@@ -560,7 +678,10 @@ local function DoSkirmEnemy(unitID, behaviour, unitData, enemy, enemyUnitDef, ty
 			if reloadFrames and (behaviour.skirmBlockedApproachFrames < -reloadFrames) then
 				if (not behaviour.skirmBlockApproachHeadingBlock) or HeadingAllowReloadSkirmBlock(unitID, behaviour.skirmBlockApproachHeadingBlock, ex, ez) then
 					if cmdID and move and not behaviour.skirmKeepOrder then
-						spGiveOrderToUnit(unitID, CMD_REMOVE, {cmdTag}, 0 )
+						spGiveOrderToUnit(unitID, CMD_REMOVE, cmdTag, 0 )
+					end
+					if doDebug then
+						Spring.Echo("return behaviour.skirmBlockedApproachFrames < -reloadFrames", behaviour.skirmBlockedApproachFrames, reloadFrames, reloadState, frame)
 					end
 					return behaviour.skirmKeepOrder
 				end
@@ -578,7 +699,7 @@ local function DoSkirmEnemy(unitID, behaviour, unitData, enemy, enemyUnitDef, ty
 		GG.recursion_GiveOrderToUnit = true
 		if move then
 			cx, cy, cz = GiveClampedOrderToUnit(unitID, CMD_INSERT, {0, CMD_RAW_MOVE, CMD_OPT_INTERNAL, cx, cy, cz }, CMD.OPT_ALT )
-			spGiveOrderToUnit(unitID, CMD_REMOVE, {cmdTag}, 0 )
+			spGiveOrderToUnit(unitID, CMD_REMOVE, cmdTag, 0 )
 		else
 			cx, cy, cz = GiveClampedOrderToUnit(unitID, CMD_INSERT, {0, CMD_RAW_MOVE, CMD_OPT_INTERNAL, cx, cy, cz }, CMD.OPT_ALT )
 		end
@@ -587,7 +708,7 @@ local function DoSkirmEnemy(unitID, behaviour, unitData, enemy, enemyUnitDef, ty
 		unitData.receivedOrder = true
 		return true
 	elseif cmdID and move and not behaviour.skirmKeepOrder then
-		spGiveOrderToUnit(unitID, CMD_REMOVE, {cmdTag}, 0 )
+		spGiveOrderToUnit(unitID, CMD_REMOVE, cmdTag, 0 )
 		return true
 	end
 
@@ -603,6 +724,14 @@ local function DoFleeEnemy(unitID, behaviour, unitData, enemy, enemyUnitDef, typ
 		if range > enemyRange then
 			enemyRange = range
 		end
+	end
+
+	local doDebug = (debugUnit and debugUnit[unitID]) or debugAll
+	if debugAction or doDebug then
+		if doDebug then
+			Spring.Echo(" === DoFleeEnemy", unitID, "===")
+		end
+		Spring.Utilities.UnitEcho(unitID, "Flee")
 	end
 
 	local prediction = behaviour.fleeVelPrediction or behaviour.velocityPrediction
@@ -621,17 +750,20 @@ local function DoFleeEnemy(unitID, behaviour, unitData, enemy, enemyUnitDef, typ
 	local pointDis = ((predictDistSq < origDistSq) and math.sqrt(predictDistSq)) or math.sqrt(origDistSq)
 
 	if isIdleAttack then
-		if UpdateIdleAgressionState(unitID, behaviour, unitData, frame, enemy, enemyRange, pointDis, ux, uz, ex, ez) then
+		if (debugUnit and debugUnit[unitID]) or debugAll then
+			Spring.Echo("=== DoFleeEnemy Idle", unitID, " ===")
+		end
+		if UpdateIdleAgressionState(unitID, behaviour, unitData, frame, enemy, typeKnown and enemyUnitDef, behaviour.minFleeRange, pointDis, ux, uz, ex, ez) then
 			return false
 		end
 	end
 	
 	if enemyRange + behaviour.fleeLeeway > pointDis then
 		local dis = behaviour.fleeOrderDis
-		local f = dis/pointDis
 		if (pointDis+dis > behaviour.skirmRange-behaviour.stoppingDistance) then
-			f = (enemyRange+behaviour.fleeDistance-pointDis)/pointDis
+			dis = (enemyRange+behaviour.fleeDistance-pointDis)
 		end
+		local f = dis/pointDis
 		local cx = ux+(ux-ex)*f
 		local cy = uy
 		local cz = uz+(uz-ez)*f
@@ -641,7 +773,7 @@ local function DoFleeEnemy(unitID, behaviour, unitData, enemy, enemyUnitDef, typ
 		if cmdID then
 			if move then
 				cx, cy, cz = GiveClampedOrderToUnit(unitID, CMD_INSERT, {0, CMD_RAW_MOVE, CMD_OPT_INTERNAL, cx, cy, cz }, CMD.OPT_ALT )
-				spGiveOrderToUnit(unitID, CMD_REMOVE, {cmdTag}, 0 )
+				spGiveOrderToUnit(unitID, CMD_REMOVE, cmdTag, 0 )
 			else
 				cx, cy, cz = GiveClampedOrderToUnit(unitID, CMD_INSERT, {0, CMD_RAW_MOVE, CMD_OPT_INTERNAL, cx, cy, cz }, CMD.OPT_ALT )
 			end
@@ -655,7 +787,7 @@ local function DoFleeEnemy(unitID, behaviour, unitData, enemy, enemyUnitDef, typ
 		unitData.receivedOrder = true
 		return true
 	elseif cmdID and move then
-		spGiveOrderToUnit(unitID, CMD_REMOVE, {cmdTag}, 0 )
+		spGiveOrderToUnit(unitID, CMD_REMOVE, cmdTag, 0 )
 	end
 
 	return false
@@ -667,15 +799,20 @@ local function DoAiLessIdleCheck(unitID, behaviour, unitData, frame, enemy, enem
 		return false
 	end
 	
-	local enemyRange = 0
-	if enemyUnitDef and typeKnown then
-		enemyRange = GetEnemyRange(enemyUnitDef)
+	if debugAction then
+		Spring.Utilities.UnitEcho(unitID, "check")
 	end
 	
 	local ex, ey, ez = spGetUnitPosition(enemy) -- enemy position
 	local ux, uy, uz = spGetUnitPosition(unitID) -- my position
 	
-	UpdateIdleAgressionState(unitID, behaviour, unitData, frame, enemy, enemyRange, pointDis, ux, uz, ex, ez)
+	if (debugUnit and debugUnit[unitID]) or debugAll then
+		Spring.Utilities.UnitEcho(unitID, "Idle " .. unitID)
+		Spring.Echo("=== DoAiLessIdleCheck", unitID, " ===")
+		Spring.Echo("ex, ey, ez", ex, ey, ez, "ux, uy, uz", ux, uy, uz)
+	end
+	
+	UpdateIdleAgressionState(unitID, behaviour, unitData, frame, enemy, typeKnown and enemyUnitDef, 250, pointDis, ux, uz, ex, ez)
 end
 
 --------------------------------------------------------------------------------
@@ -694,11 +831,13 @@ local function DoTacticalAI(unitID, cmdID, cmdOpts, cmdTag, cp_1, cp_2, cp_3,
 		behaviour = behaviour.fightOnlyOverride
 	end
 	
-	if isIdleAttack and enemy and (not unitData.idleAgression) and typeKnown and ((behaviour.idleFleeCombat and armedUnitDefIDs[enemyUnitDef]) or (behaviour.idleFlee and behaviour.idleFlee[enemyUnitDef])) then
-		if not DoFleeEnemy(unitID, behaviour, unitData, enemy, enemyUnitDef, typeKnown, move, isIdleAttack, cmdID, cmdTag, frame) then
+	if isIdleAttack and enemy and (not unitData.idleAgression) and typeKnown
+			and ((behaviour.idleFleeCombat and armedUnitDefIDs[enemyUnitDef]) or (behaviour.idleFlee and behaviour.idleFlee[enemyUnitDef])) then
+		local orderSent = DoFleeEnemy(unitID, behaviour, unitData, enemy, enemyUnitDef, typeKnown, move, isIdleAttack, cmdID, cmdTag, frame)
+		if not orderSent then
 			ClearOrder(unitID, unitData, cmdID, cmdTag, cp_1, cp_2, cp_3)
 		end
-		return true
+		return true, orderSent
 	end
 	
 	local didSwarm = false
@@ -714,7 +853,7 @@ local function DoTacticalAI(unitID, cmdID, cmdOpts, cmdTag, cp_1, cp_2, cp_3,
 	if didSwarm then
 		-- Units can immediately transition to skirm after swarming.
 		-- This can happen if a known auto-target becomes too far away.
-		return true
+		return true, true
 	end
 	
 	if not enemy then
@@ -724,21 +863,26 @@ local function DoTacticalAI(unitID, cmdID, cmdOpts, cmdTag, cp_1, cp_2, cp_3,
 	local typeSkirm = typeKnown and behaviour.skirms and (behaviour.skirms[enemyUnitDef] or (behaviour.hugs and behaviour.hugs[enemyUnitDef]))
 	if (typeSkirm or ((not typeKnown) and behaviour.skirmRadar) or behaviour.skirmEverything) then
 		--Spring.Echo("unit checking skirm")
-		if not DoSkirmEnemy(unitID, behaviour, unitData, enemy, enemyUnitDef, typeKnown, move, isIdleAttack, cmdID, cmdTag, frame,
-				haveFight and holdPos, particularEnemy and (behaviour.hugs and behaviour.hugs[enemyUnitDef])) then
+		local orderSent = DoSkirmEnemy(unitID, behaviour, unitData, enemy, enemyUnitDef, typeKnown,
+			move, isIdleAttack, cmdID, cmdTag, frame,
+			haveFight and holdPos,
+			particularEnemy and (behaviour.hugs and behaviour.hugs[enemyUnitDef])
+		)
+		if not orderSent then
 			ClearOrder(unitID, unitData, cmdID, cmdTag, cp_1, cp_2, cp_3)
 		end
-		return true
+		return true, orderSent
 	end
 	
 	if behaviour.fleeEverything then
-		if not DoFleeEnemy(unitID, behaviour, unitData, enemy, enemyUnitDef, typeKnown, move, isIdleAttack, cmdID, cmdTag, frame) then
+		local orderSent = DoFleeEnemy(unitID, behaviour, unitData, enemy, enemyUnitDef, typeKnown, move, isIdleAttack, cmdID, cmdTag, frame)
+		if not orderSent then
 			ClearOrder(unitID, unitData, cmdID, cmdTag, cp_1, cp_2, cp_3)
 		end
-		return true
+		return true, orderSent
 	end
 	
-	if (cmdID == CMD_ATTACK and not Spring.Utilities.CheckBit(gadget:GetInfo().name, cmdOpts, CMD.OPT_INTERNAL)) then
+	if (cmdID == CMD_ATTACK and not Spring.Utilities.CheckBit(DEBUG_NAME, cmdOpts, CMD.OPT_INTERNAL)) then
 		return false -- if I have been given attack order manually do not flee
 	end
 	
@@ -746,10 +890,11 @@ local function DoTacticalAI(unitID, cmdID, cmdOpts, cmdTag, cp_1, cp_2, cp_3,
 			or (not typeKnown and behaviour.fleeRadar) then
 		-- if I have los and the unit is a fleeable or a unit is unarmed and I flee combat - flee
 		-- if I do not have los and flee radar dot, flee
-		if not DoFleeEnemy(unitID, behaviour, unitData, enemy, enemyUnitDef, typeKnown, move, isIdleAttack, cmdID, cmdTag, frame) then
+		local orderSent = DoFleeEnemy(unitID, behaviour, unitData, enemy, enemyUnitDef, typeKnown, move, isIdleAttack, cmdID, cmdTag, frame)
+		if not orderSent then
 			ClearOrder(unitID, unitData, cmdID, cmdTag, cp_1, cp_2, cp_3)
 		end
-		return true
+		return true, orderSent
 	end
 	
 	return false
@@ -757,6 +902,11 @@ end
 
 local function DoUnitUpdate(unitID, frame, slowUpdate)
 	local unitData = unit[unitID]
+	
+	if unitData.lastUpdate and unitData.lastUpdate + MAX_UPRATE_RATE > frame then
+		return
+	end
+	unitData.lastUpdate = frame
 	
 	local exitEarly = GetAiExitEarly(unitID, unitData)
 	if exitEarly and not slowUpdate then
@@ -768,22 +918,46 @@ local function DoUnitUpdate(unitID, frame, slowUpdate)
 	local roamState = (moveState == 2)
 	local middleMoveState = (moveState == 1)
 	local holdPos = (moveState == 0)
-	
+
+	-- This is pretty hacky, but there is no need to do GetUnitOrderState if the unit doesn't have an attack command
+	local continueOnlyToFixNonAiFight = false
 	local behaviour
-	if not middfleMoveState then
+	if not (middleMoveState and unitData.wasIdle) then
 		if exitEarly then
-			return
+			unitData.idleWantReturn = false
+			if cmdID == CMD_ATTACK then
+				continueOnlyToFixNonAiFight = true
+			else
+				return
+			end
 		end
 		behaviour = GetUnitBehavior(unitID, unitData.udID)
 		if behaviour.onlyIdleHandling then
-			return
+			unitData.idleWantReturn = false
+			if cmdID == CMD_ATTACK then
+				continueOnlyToFixNonAiFight = true
+			else
+				return
+			end
 		end
 	end
 	
-	local enemy, move, haveFight, autoAttackEnemyID, fightX, fightY, fightZ = GetUnitOrderState(unitID, unitData, cmdID, cmdOpts, cp_1, cp_2, cp_3, holdPos)
+	local enemy, move, haveFight, autoAttackEnemyID, autoCmdTag, fightX, fightY, fightZ = GetUnitOrderState(unitID, unitData, cmdID, cmdOpts, cp_1, cp_2, cp_3, cmdTag, holdPos)
 	local isIdleAttack = middleMoveState and ((not cmdID) or (autoAttackEnemyID and not haveFight))
 	
-	if haveFight and (not isIdleAttack) and unitData.rx then
+	if continueOnlyToFixNonAiFight then
+		-- Removes a fight/autotarget-issued attack command if there is a closer enemy.
+		-- Prevents chasing past enemies that are good targets.
+		if enemy == -1 and autoCmdTag and (autoAttackEnemyID or -1) >= 0 then
+			enemy = (spGetUnitNearestEnemy(unitID, behaviour.searchRange, true) or false)
+			if enemy and enemy ~= autoAttackEnemyID then
+				spGiveOrderToUnit(unitID, CMD_REMOVE, autoCmdTag, 0)
+			end
+		end
+		return
+	end
+	
+	if unitData.wasIdle and haveFight and (not isIdleAttack) and unitData.rx then
 		if (fightX == unitData.rx) and (fightY == unitData.ry) and (fightZ == unitData.rz) and (not holdPos) then
 			isIdleAttack = true
 		else
@@ -791,13 +965,22 @@ local function DoUnitUpdate(unitID, frame, slowUpdate)
 		end
 	end
 	
-	--Spring.Echo("BEFORE", cmdID, unitData.idleWantReturn, move, enemy, isIdleAttack, math.random())
+	local doDebug = (debugUnit and debugUnit[unitID]) or debugAll
+	if doDebug then
+		Spring.Echo("=== DoUnitAIUpdate", unitID, " ===")
+		Spring.Utilities.UnitEcho(unitID, "update " .. unitID)
+		Spring.Echo("cmdID", cmdID, "enemy", enemy, "move", move, "haveFight", haveFight, "autoAttackEnemyID", autoAttackEnemyID)
+		Spring.Echo("wasIdle", unitData.wasIdle, "isIdleAttack", isIdleAttack, "idleWantReturn", unitData.idleWantReturn)
+		Spring.Echo("queueReturnX queueReturnZ", unitData.queueReturnX, unitData.queueReturnZ, "setReturn", unitData.setReturn)
+	end
 	
-	unitData.idleWantReturn = (unitData.idleWantReturn and (enemy == -1 or move) and not haveFight) or isIdleAttack
-	--Spring.Echo("unitData", cmdID, unitData.idleWantReturn, move, enemy, isIdleAttack, math.random())
-	--Spring.Utilities.UnitEcho(unitID, unitData.idleWantReturn and "W" or "O_O")
+	unitData.idleWantReturn = unitData.wasIdle and ((unitData.idleWantReturn and (enemy == -1 or move) and not haveFight) or isIdleAttack)
+	if doDebug then
+		Spring.Echo("after", "idleWantReturn", unitData.idleWantReturn)
+		Spring.Utilities.UnitEcho(unitID, unitData.idleWantReturn and "W" or "O_O")
+	end
 	
-	local sentTacticalAiOrder = false
+	local aiTargetFound, aiSentOrder = false, false
 	if (enemy) then -- if I am fighting/patroling ground, idle, or targeting an enemy
 		local particularEnemy = ((enemy ~= -1) or autoAttackEnemyID) and true
 		
@@ -808,7 +991,7 @@ local function DoUnitUpdate(unitID, frame, slowUpdate)
 		
 		if not alwaysJink then
 			if enemy == -1 then -- if I am fighting/patroling ground get nearest enemy
-				enemy = (spGetUnitNearestEnemy(unitID, (cmdID and behaviour.idleSearchRange) or behaviour.searchRange, true) or false)
+				enemy = (spGetUnitNearestEnemy(unitID, (cmdID and behaviour.searchRange) or behaviour.idleSearchRange, true) or false)
 			end
 			--Spring.Utilities.UnitEcho(enemy)
 			--Spring.Echo("enemy spotted 2")
@@ -820,19 +1003,30 @@ local function DoUnitUpdate(unitID, frame, slowUpdate)
 		
 		if not (exitEarly or behaviour.onlyIdleHandling) then
 			--Spring.Echo("cmdID", cmdID, cmdTag, move, math.random())
-			sentTacticalAiOrder = DoTacticalAI(unitID, cmdID, cmdOpts, cmdTag, cp_1, cp_2, cp_3,
+			aiTargetFound, sentAiOrder = DoTacticalAI(unitID, cmdID, cmdOpts, cmdTag, cp_1, cp_2, cp_3,
 				fightX, fightY, fightZ, unitData, behaviour, enemy, enemyUnitDef, typeKnown,
 				move, haveFight, holdPos, unitData.idleWantReturn, particularEnemy, frame, alwaysJink)
 			
-			if autoAttackEnemyID and not sentTacticalAiOrder then
+			if autoAttackEnemyID and not aiTargetFound then
 				enemyUnitDef, typeKnown = GetUnitVisibleInformation(autoAttackEnemyID, unitData.allyTeam)
-				sentTacticalAiOrder = DoTacticalAI(unitID, cmdID, cmdOpts, cmdTag, cp_1, cp_2, cp_3,
+				aiTargetFound, sentAiOrder = DoTacticalAI(unitID, cmdID, cmdOpts, cmdTag, cp_1, cp_2, cp_3,
 					fightX, fightY, fightZ, unitData, behaviour, autoAttackEnemyID, enemyUnitDef, typeKnown,
 					move, haveFight, holdPos, unitData.idleWantReturn, particularEnemy, frame, alwaysJink)
 			end
 		end
 		
-		if enemy and enemy ~= -1 and unitData.idleWantReturn and not sentTacticalAiOrder then
+		if doDebug then
+			Spring.Echo("sentAiOrder", aiSentOrder, autoCmdTag, autoAttackEnemyID, enemy)
+		end
+		
+		if not aiSentOrder and autoCmdTag and (autoAttackEnemyID or -1) >= 0 and (enemy or -1) >= 0 and autoAttackEnemyID ~= enemy then
+			-- Removes a fight/autotarget-issued attack command if there is a closer enemy.
+			-- Prevents chasing past enemies that are good targets.
+			-- Only do this if no order was sent, so swarming may be less affected, which seems fine.
+			spGiveOrderToUnit(unitID, CMD_REMOVE, autoCmdTag, 0)
+		end
+		
+		if enemy and enemy ~= -1 and unitData.idleWantReturn and not aiTargetFound then
 			DoAiLessIdleCheck(unitID, behaviour, unitData, frame, enemy, enemyUnitDef, typeKnown)
 		end
 	end
@@ -844,7 +1038,7 @@ local function DoUnitUpdate(unitID, frame, slowUpdate)
 		unitData.idleWantReturn = nil
 		if roamState then -- Roam
 			unitData.setReturn = false
-		elseif (sentTacticalAiOrder or cmdID or holdPos) and not unitData.forceReturn then
+		elseif (aiTargetFound or cmdID or holdPos) and not unitData.forceReturn then
 			-- Save for next idle
 			unitData.idleX = rx
 			unitData.idleZ = rz
@@ -885,10 +1079,19 @@ local function UpdateUnits(frame, start, increment)
 			DoUnitUpdate(unitID, frame, slowUpdate)
 		end
 	end
+	
+	if needNextUpdate then
+		for i = 1, #needNextUpdate do
+			if spValidUnitID(needNextUpdate[i]) then
+				DoUnitUpdate(needNextUpdate[i], frame, false)
+			end
+		end
+		needNextUpdate = false
+	end
 end
 
 function gadget:GameFrame(n)
-	UpdateUnits(n, n%20+1, 20)
+	UpdateUnits(n, n%UPDATE_RATE + 1, UPDATE_RATE)
 end
 
 --------------------------------------------------------------------------------
@@ -896,18 +1099,27 @@ end
 -- Idle Handling
 
 local function AddIdleUnit(unitID, unitDefID)
-	if not unit[unitID] then
+	if not (unit[unitID] and spValidUnitID(unitID)) then
 		return
 	end
 	local unitData = unit[unitID]
+	unitData.wasIdle = true
+	
+	local doDebug = (debugUnit and debugUnit[unitID]) or debugAll
+	if doDebug then
+		Spring.Utilities.UnitEcho(unitID, "Idle " .. unitID)
+		Spring.Echo("=== Unit Idle", unitID, " ===")
+	end
 	
 	if unitData.idleWantReturn and unitData.idleX then
+		if doDebug then
+			Spring.Echo("Return to idle position", unitData.idleX, unitData.idleZ)
+		end
 		ReturnUnitToIdlePos(unitID, unitData)
-		--Spring.Utilities.UnitEcho(unitID, "Q")
 		return
 	end
 	
-	local behaviour = GetUnitBehavior(unitID, unitDefID)
+	local behaviour = GetUnitBehavior(unitID, unitData.udID)
 	local nearbyEnemy = spGetUnitNearestEnemy(unitID, behaviour.leashAgressRange, true) or false
 	local x, _, z = Spring.GetUnitPosition(unitID)
 	
@@ -915,11 +1127,15 @@ local function AddIdleUnit(unitID, unitDefID)
 	unitData.idleZ = z
 	unitData.wantFightReturn = nil
 	unitData.idleWantReturn = nil
+
+	if doDebug then
+		Spring.Echo("New Idle", unitData.idleX, unitData.idleZ, nearbyEnemy)
+	end
 	
 	if nearbyEnemy then
 		local enemyUnitDef, typeKnown = GetUnitVisibleInformation(nearbyEnemy, unitData.allyTeam)
 		if enemyUnitDef and typeKnown then
-			local enemyRange = GetEnemyRange(enemyUnitDef)
+			local enemyRange = GetEnemyRealRange(enemyUnitDef)
 			if enemyRange and enemyRange > 0 then
 				local enemyDist = spGetUnitSeparation(nearbyEnemy, unitID, true)
 				if enemyRange + behaviour.leashEnemyRangeLeeway < enemyDist then
@@ -929,12 +1145,35 @@ local function AddIdleUnit(unitID, unitDefID)
 		end
 	end
 	
+	if doDebug then
+		Spring.Echo("After nearby check", nearbyEnemy)
+	end
+	
 	SetIdleAgression(unitID, unitData, nearbyEnemy)
 	--Spring.Utilities.UnitEcho(unitID, "I")
 end
 
 function gadget:UnitIdle(unitID, unitDefID)
 	AddIdleUnit(unitID, unitDefID)
+end
+
+function gadget:UnitCommand(unitID, unitDefID, unitTeam, cmdID, cmdParams, cmdOpts, cmdTag, playerID, fromSynced, fromLua)
+	if playerID == -1 or fromLua then
+		return
+	end
+	if cmdID and stateCommands[cmdID] then
+		return
+	end
+	local unitData = unit[unitID]
+	if not unitData then
+		return
+	end
+	if (cmdID == CMD_FIGHT or cmdID == CMD_ATTACK) and unitData.receivedOrder and not cmdOpts.shift then
+		needNextUpdate = needNextUpdate or {}
+		needNextUpdate[#needNextUpdate + 1] = unitID
+	end
+	unitData.wasIdle = false
+	unitData.idleWantReturn = false
 end
 
 --------------------------------------------------------------------------------
@@ -976,6 +1215,44 @@ end
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
+-- Debug
+
+local function ToggleDebugIdleAll(cmd, line, words, player)
+	if not Spring.IsCheatingEnabled() then
+		return
+	end
+	debugAll = not debugAll
+	Spring.Echo("Debug Idle All", debugAll)
+end
+
+local function ToggleDebugAiAction(cmd, line, words, player)
+	if not Spring.IsCheatingEnabled() then
+		return
+	end
+	debugAction = not debugAction
+	Spring.Echo("Debug Tactical AI", debugAction)
+end
+
+local function ToggleDebugUnit(cmd, line, words, player)
+	if not Spring.IsCheatingEnabled() then
+		return
+	end
+	local unitID = tonumber(words[1])
+	Spring.Echo("Debug Detailed Unit")
+	if not unitID then
+		Spring.Echo("Disabled")
+		debugUnit = nil
+		return
+	end
+	
+	Spring.Echo("Adding unitID", unitID)
+	Spring.Utilities.UnitEcho(unitID)
+	debugUnit = debugUnit or {}
+	debugUnit[unitID] = true
+end
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 -- Unit adding/removal
 
 function gadget:Initialize()
@@ -988,6 +1265,10 @@ function gadget:Initialize()
 		local teamID = Spring.GetUnitTeam(unitID)
 		gadget:UnitCreated(unitID, unitDefID, teamID)
 	end
+	
+	gadgetHandler:AddChatAction("debugidleall", ToggleDebugIdleAll, "")
+	gadgetHandler:AddChatAction("debugai", ToggleDebugAiAction, "")
+	gadgetHandler:AddChatAction("debugaiunit", ToggleDebugUnit, "")
 end
 
 function gadget:UnitGiven(unitID, unitDefID, teamID, oldTeamID)
@@ -1032,7 +1313,6 @@ function gadget:UnitCreated(unitID, unitDefID, unitTeam, builderID)
 		receivedOrder = false,
 		allyTeam = spGetUnitAllyTeam(unitID),
 	}
-	AddIdleUnit(unitID, unitDefID)
 	
 	if not behaviour.onlyIdleHandling then
 		if (behaviour.defaultAIState == 1) then

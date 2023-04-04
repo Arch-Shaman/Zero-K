@@ -27,17 +27,17 @@ local function Open ()
 	WaitForTurn (arm2, x_axis)
 
 	-- set values
-	SetUnitValue (COB.YARD_OPEN, 1)
+	SetUnitValue(COB.YARD_OPEN, 1)
 	SetInBuildDistance(true)
-	SetUnitValue (COB.BUGGER_OFF, 1)
+	--SetUnitValue(COB.BUGGER_OFF, 1)
 end
 
 local function Close()
 	Signal (1)
 
 	-- set values
-	SetUnitValue (COB.YARD_OPEN, 0)
-	SetUnitValue (COB.BUGGER_OFF, 0)
+	SetUnitValue(COB.YARD_OPEN, 0)
+	--SetUnitValue(COB.BUGGER_OFF, 0)
 	SetInBuildDistance(false)
 
 	-- move pieces back to original spots
@@ -48,11 +48,6 @@ end
 function script.Create()
 	StartThread (GG.Script.SmokeUnit, unitID, smokePiece)
 	Spring.SetUnitNanoPieces (unitID, nanoPieces)
-end
-
-function script.QueryNanoPiece ()
-	GG.LUPS.QueryNanoPiece (unitID, unitDefID, Spring.GetUnitTeam(unitID), nano)
-	return nano
 end
 
 function script.Activate ()

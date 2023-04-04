@@ -17,6 +17,8 @@ return { energyheavygeo = {
     pylonrange     = 150,
     removewait     = 1,
     removestop     = 1,
+
+    stats_show_death_explosion = 1,
   },
 
   energyMake                    = 100,
@@ -25,11 +27,8 @@ return { energyheavygeo = {
   footprintX                    = 5,
   footprintZ                    = 5,
   iconType                      = [[energyheavygeo]],
-  idleAutoHeal                  = 5,
-  idleTime                      = 1800,
   maxDamage                     = 3250,
   maxSlope                      = 255,
-  minCloakDistance              = 150,
   objectName                    = [[energyheavygeo.s3o]],
   script                        = [[energyheavygeo.lua]],
   selfDestructAs                = [[NUCLEAR_MISSILE]],

@@ -18,10 +18,11 @@ include("LuaRules/Configs/constants.lua")
 --------------------------------------------------------------------------------
 local spGetTeamInfo         = Spring.GetTeamInfo
 local spGetPlayerInfo       = Spring.GetPlayerInfo
-local spGetSpectatingState  = Spring.GetSpectatingState
 local spGetPlayerList       = Spring.GetPlayerList
 
 local modOptions = Spring.GetModOptions()
+local ALLOW_EXTRA_COM = (modOptions.equalcom ~= "off")
+local FORCE_EXTRA_COM = (modOptions.equalcom == "enable")
 
 local DELAYED_AFK_SPAWN = false
 local COOP_MODE = false
@@ -32,12 +33,16 @@ local setAiStartPos = (modOptions.setaispawns == "1")
 local CAMPAIGN_SPAWN_DEBUG = (Spring.GetModOptions().campaign_spawn_debug == "1")
 
 local gaiateam = Spring.GetGaiaTeamID()
-local gaiaally = select(6, spGetTeamInfo(gaiateam, false))
+local allyTeamAFKers = {}
 
 local SAVE_FILE = "Gadgets/start_unit_setup.lua"
 
 local fixedStartPos = (modOptions.fixedstartpos == "1")
-local ordersToRemove
+
+local modStartMetal = START_METAL
+local modStartEnergy = START_ENERGY
+local modInnateMetal = INNATE_INC_METAL
+local modInnateEnergy = INNATE_INC_ENERGY
 
 local storageUnits = {
 	{
@@ -55,27 +60,11 @@ if (gadgetHandler:IsSyncedCode()) then
 --------------------------------------------------------------------------------
 -- Functions shared between missions and non-missions
 
-local function CheckOrderRemoval() -- FIXME: maybe we can remove polling every frame and just remove the orders directly
-	if not ordersToRemove then
-		return
-	end
-	for unitID, factoryDefID in pairs(ordersToRemove) do
-		local cmdID, _, cmdTag = Spring.GetUnitCurrentCommand(unitID)
-		if cmdID == -factoryDefID then
-			Spring.GiveOrderToUnit(unitID, CMD.REMOVE, cmdTag, CMD.OPT_ALT)
-		end
-	end
-	ordersToRemove = nil
-end
-
 local function CheckFacplopUse(unitID, unitDefID, teamID, builderID)
 	if ploppableDefs[unitDefID] and (select(5, Spring.GetUnitHealth(unitID)) < 0.1) and (builderID and Spring.GetUnitRulesParam(builderID, "facplop") == 1) then
 		-- (select(5, Spring.GetUnitHealth(unitID)) < 0.1) to prevent ressurect from spending facplop.
 		Spring.SetUnitRulesParam(builderID,"facplop",0, {inlos = true})
 		Spring.SetUnitRulesParam(unitID,"ploppee",1, {private = true})
-		
-		ordersToRemove = ordersToRemove or {}
-		ordersToRemove[builderID] = unitDefID
 		
 		-- Instantly complete factory
 		local maxHealth = select(2,Spring.GetUnitHealth(unitID))
@@ -118,10 +107,6 @@ if VFS.FileExists("mission.lua") then -- this is a mission, we just want to set 
 
 	function GG.SetStartLocation()
 	end
-
-	function gadget:GameFrame(n)
-		CheckOrderRemoval()
-	end
 	
 	function GG.GiveFacplop(unitID) -- deprecated, use rulesparam directly
 		Spring.SetUnitRulesParam(unitID, "facplop", 1, {inlos = true})
@@ -146,6 +131,7 @@ local teamSides = {} -- sides selected ingame from widgets - per teams
 
 local playerIDsByName = {}
 local commChoice = {}
+local allyTeamCommanderCount = {}
 
 --local prespawnedCommIDs = {}	-- [teamID] = unitID
 
@@ -211,7 +197,6 @@ local function GetStartUnit(teamID, playerID, isAI)
 	end
 
 	local startUnit
-	local commProfileID = nil
 
 	if isAI then -- AI that didn't pick comm type gets default comm
 		return UnitDefNames[Spring.GetTeamRulesParam(teamID, "start_unit") or "dyntrainer_strike_base"].id
@@ -233,7 +218,6 @@ local function GetStartUnit(teamID, playerID, isAI)
 		local altComm = playerCommProfiles[commChoice[playerID]]
 		if altComm then
 			startUnit = playerCommProfiles[commChoice[playerID]].baseUnitDefID
-			commProfileID = commChoice[playerID]
 		end
 	end
 
@@ -256,7 +240,7 @@ local function GetFacingDirection(x, z, teamID)
 			or ((z>Game.mapSizeZ/2) and "north" or "south")
 end
 
-local function getMiddleOfStartBox(teamID)
+local function GetRecommendedStartPosition(teamID, n) -- allyteams can have multiple start positions, go and get the nth one.
 	local x = Game.mapSizeX / 2
 	local z = Game.mapSizeZ / 2
 
@@ -264,7 +248,8 @@ local function getMiddleOfStartBox(teamID)
 	if boxID then
 		local startposList = GG.startBoxConfig[boxID] and GG.startBoxConfig[boxID].startpoints
 		if startposList then
-			local startpos = startposList[1] -- todo: distribute afkers over them all instead of always using the 1st
+			local maxpoints = #startposList
+			local startpos = startposList[(n%maxpoints) + 1] -- recycle if you run out of points.
 			x = startpos[1]
 			z = startpos[2]
 		end
@@ -290,9 +275,11 @@ local function GetStartPos(teamID, teamInfo, isAI)
 		end
 		return x, y, z
 	end
-	
+	local allyTeamID = select(6, Spring.GetTeamInfo(teamID))
 	if not (Spring.GetTeamRulesParam(teamID, "valid_startpos") or isAI) then
-		local x, y, z = getMiddleOfStartBox(teamID)
+		local index = allyTeamAFKers[allyTeamID] or 0
+		allyTeamAFKers[allyTeamID] = index + 1
+		local x, y, z = GetRecommendedStartPosition(teamID, index)
 		return x, y, z
 	end
 	
@@ -301,7 +288,9 @@ local function GetStartPos(teamID, teamInfo, isAI)
 	-- AIs can place them -- remove this once AIs are able to be filtered through AllowStartPosition
 	local boxID = isAI and Spring.GetTeamRulesParam(teamID, "start_box_id")
 	if boxID and not GG.CheckStartbox(boxID, x, z) then
-		x,y,z = getMiddleOfStartBox(teamID)
+		local index = allyTeamAFKers[allyTeamID] or 0
+		allyTeamAFKers[allyTeamID] = index + 1
+		x,y,z = GetRecommendedStartPosition(teamID, index)
 	end
 	return x, y, z
 end
@@ -366,6 +355,7 @@ local function SpawnStartUnit(teamID, playerID, isAI, bonusSpawn, notAtTheStartO
 		if not unitID then
 			return
 		end
+		allyTeamCommanderCount[allyTeamID] = (allyTeamCommanderCount[allyTeamID] or 0) + 1
 		
 		if GG.GalaxyCampaignHandler then
 			GG.GalaxyCampaignHandler.DeployRetinue(unitID, x, z, facing, teamID)
@@ -393,11 +383,11 @@ local function SpawnStartUnit(teamID, playerID, isAI, bonusSpawn, notAtTheStartO
 		local metal, metalStore = Spring.GetTeamResources(teamID, "metal")
 		local energy, energyStore = Spring.GetTeamResources(teamID, "energy")
 
-		Spring.SetTeamResource(teamID, "energy", teamInfo.start_energy or (START_ENERGY + energy))
-		Spring.SetTeamResource(teamID, "metal", teamInfo.start_metal or (START_METAL + metal))
+		Spring.SetTeamResource(teamID, "energy", teamInfo.start_energy or (modStartEnergy + energy))
+		Spring.SetTeamResource(teamID, "metal", teamInfo.start_metal or (modStartMetal + metal))
 
 		if GG.Overdrive then
-			GG.Overdrive.AddInnateIncome(allyTeamID, INNATE_INC_METAL, INNATE_INC_ENERGY)
+			GG.Overdrive.AddInnateIncome(allyTeamID, modInnateMetal, modInnateEnergy)
 		end
 
 		if (udef.customParams.level and udef.name ~= "chickenbroodqueen") and
@@ -505,14 +495,70 @@ local function GetPregameUnitStorage(teamID)
 	return storage
 end
 
+local function SpawnCustomKeyExtraCommanders(teamID)
+	if not ALLOW_EXTRA_COM then
+		return
+	end
+	local playerlist = Spring.GetPlayerList(teamID, true)
+	playerlist = workAroundSpecsInTeamZero(playerlist, teamID)
+	if playerlist then
+		for i = 1, #playerlist do
+			local customKeys = select(10, Spring.GetPlayerInfo(playerlist[i]))
+			if customKeys and customKeys.extracomm then
+				for j = 1, tonumber(customKeys.extracomm) do
+					Spring.Echo("Spawing a commander")
+					SpawnStartUnit(teamID, playerlist[i], false, true)
+				end
+			end
+		end
+	end
+end
+
+local function SpawnAllyTeamExtraCommanders(allyTeamID, wanted)
+	local teams = Spring.GetTeamList(allyTeamID)
+	Spring.Utilities.PermuteList(teams)
+	local tries = 50
+	while wanted > 0 and tries > 0 do
+		for i = 1, #teams do
+			local teamID = teams[i]
+			local _, playerID, _, isAI = spGetTeamInfo(teamID, false)
+			SpawnStartUnit(teamID, playerID, isAI, true)
+			wanted = wanted - 1
+			if wanted <= 0 then
+				break
+			end
+		end
+		tries = tries - 1
+	end
+end
+
 function gadget:GameStart()
 	if Spring.Utilities.tobool(Spring.GetGameRulesParam("loadedGame")) then
 		return
 	end
 	gamestart = true
+	
+	-- check starting/innate resource modoptions
+	if (modOptions.startmetal and tonumber(modOptions.startmetal) and tonumber(modOptions.startmetal) >= 0) then
+		modStartMetal = modOptions.startmetal
+	end
+	if (modOptions.startenergy and tonumber(modOptions.startenergy) and tonumber(modOptions.startenergy) >= 0) then
+		modStartEnergy = modOptions.startenergy
+	end
+	if (modOptions.startresdelta and tonumber(modOptions.startresdelta) and tonumber(modOptions.startresdelta) > 0) then
+		local resdelta = math.random(0,modOptions.startresdelta)
+		modStartMetal = modStartMetal + resdelta
+		modStartEnergy = modStartEnergy + resdelta
+	end
+	if (modOptions.innatemetal and tonumber(modOptions.innatemetal) and tonumber(modOptions.innatemetal) >= 0) then
+		modInnateMetal = modOptions.innatemetal
+	end
+	if (modOptions.innateenergy and tonumber(modOptions.innateenergy) and tonumber(modOptions.innateenergy) >= 0) then
+		modInnateEnergy = modOptions.innateenergy
+	end
 
 	-- spawn units
-	for teamNum,team in ipairs(Spring.GetTeamList()) do
+	for teamNum, team in ipairs(Spring.GetTeamList()) do
 		
 		-- clear resources
 		-- actual resources are set depending on spawned unit and setup
@@ -564,18 +610,18 @@ function gadget:GameStart()
 			end
 
 			-- extra comms
-			local playerlist = Spring.GetPlayerList(team, true)
-			playerlist = workAroundSpecsInTeamZero(playerlist, team)
-			if playerlist then
-				for i = 1, #playerlist do
-					local customKeys = select(10, Spring.GetPlayerInfo(playerlist[i]))
-					if customKeys and customKeys.extracomm then
-						for j = 1, tonumber(customKeys.extracomm) do
-							Spring.Echo("Spawing a commander")
-							SpawnStartUnit(team, playerlist[i], false, true)
-						end
-					end
-				end
+			SpawnCustomKeyExtraCommanders(team)
+		end
+	end
+	
+	if FORCE_EXTRA_COM then
+		local maxComms = 0
+		for allyTeamID, count in pairs(allyTeamCommanderCount) do
+			maxComms = math.max(maxComms, count)
+		end
+		for allyTeamID, count in pairs(allyTeamCommanderCount) do
+			if count < maxComms then
+				SpawnAllyTeamExtraCommanders(allyTeamID, maxComms - count)
 			end
 		end
 	end
@@ -643,7 +689,6 @@ function gadget:RecvLuaMsg(msg, playerID)
 end
 
 function gadget:GameFrame(n)
-	CheckOrderRemoval()
 	if n == (COMM_SELECT_TIMEOUT) then
 		for team in pairs(waitingForComm) do
 			local _,playerID = spGetTeamInfo(team, false)
@@ -699,13 +744,6 @@ end
 -- unsynced code
 --------------------------------------------------------------------
 else
-
-local teamID 			= Spring.GetLocalTeamID()
-local spGetUnitDefID 	= Spring.GetUnitDefID
-local spValidUnitID 	= Spring.ValidUnitID
-local spAreTeamsAllied 	= Spring.AreTeamsAllied
-local spGetUnitTeam 	= Spring.GetUnitTeam
-
 
 function gadget:Initialize()
   gadgetHandler:AddSyncAction('CommSelection',CommSelection) --Associate "CommSelected" event to "WrapToLuaUI". Reference: http://springrts.com/phpbb/viewtopic.php?f=23&t=24781 "Gadget and Widget Cross Communication"

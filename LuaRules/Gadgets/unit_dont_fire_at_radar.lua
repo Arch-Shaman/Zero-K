@@ -24,23 +24,20 @@ local spValidUnitID         = Spring.ValidUnitID
 local spGetUnitAllyTeam     = Spring.GetUnitAllyTeam
 local spGetUnitTeam         = Spring.GetUnitTeam
 local spGiveOrderToUnit     = Spring.GiveOrderToUnit
-local spSetUnitRulesParam   = Spring.SetUnitRulesParam
 local spFindUnitCmdDesc     = Spring.FindUnitCmdDesc
 local spEditUnitCmdDesc     = Spring.EditUnitCmdDesc
 local spInsertUnitCmdDesc   = Spring.InsertUnitCmdDesc
 local spGetUnitLosState     = Spring.GetUnitLosState
-local spGetCommandQueue     = Spring.GetCommandQueue
 local spSetUnitTarget       = Spring.SetUnitTarget
 local spGetUnitDefID        = Spring.GetUnitDefID
-local spGetUnitPosition     = Spring.GetUnitPosition
 
 local floor = math.floor
 
-local CMD_ATTACK		= CMD.ATTACK
-local CMD_OPT_INTERNAL 	= CMD.OPT_INTERNAL
-local CMD_FIRE_STATE 	= CMD.FIRE_STATE
-local CMD_INSERT 		= CMD.INSERT
-local CMD_REMOVE 		= CMD.REMOVE
+local CMD_ATTACK        = CMD.ATTACK
+local CMD_OPT_INTERNAL  = CMD.OPT_INTERNAL
+local CMD_FIRE_STATE    = CMD.FIRE_STATE
+local CMD_INSERT        = CMD.INSERT
+local CMD_REMOVE        = CMD.REMOVE
 
 -------------------------------------------------------------------------------------
 -------------------------------------------------------------------------------------
@@ -104,7 +101,7 @@ function gadget:AllowWeaponTarget(unitID, targetID, attackerWeaponNum, attackerW
 				spGiveOrderToUnit(unitID, CMD_INSERT, {0, CMD_ATTACK, CMD_OPT_INTERNAL, targetID }, CMD.OPT_ALT )
 				local cmdID, cmdOpts, cmdTag, cp_1, cp_2 = Spring.GetUnitCurrentCommand(unitID, 2)
 				if isTheRightSortOfCommand(cmdID, cmdOpts, cp_1, cp_2) then
-					spGiveOrderToUnit(unitID, CMD_REMOVE, {cmdTag}, 0 )
+					spGiveOrderToUnit(unitID, CMD_REMOVE, cmdTag, 0)
 				end
 			end
 			return true, defPriority
@@ -123,9 +120,9 @@ function GG.DontFireRadar_CheckAim(unitID)
 		local data = units[unitID]
 		if isTheRightSortOfCommand(cmdID, cmdOpts, cp_1, cp_2) and not canShootAtUnit(cp_1, spGetUnitAllyTeam(unitID)) then
 			local firestate = Spring.Utilities.GetUnitFireState(unitID)
-			spGiveOrderToUnit(unitID, CMD_FIRE_STATE, {0}, 0 )
-			spGiveOrderToUnit(unitID, CMD_REMOVE, {cmdTag}, 0 )
-			spGiveOrderToUnit(unitID, CMD_FIRE_STATE, {firestate}, 0 )
+			spGiveOrderToUnit(unitID, CMD_FIRE_STATE, 0, 0)
+			spGiveOrderToUnit(unitID, CMD_REMOVE, cmdTag, 0)
+			spGiveOrderToUnit(unitID, CMD_FIRE_STATE, firestate, 0)
 			wantGoodTarget[unitID] = {command = true}
 			spSetUnitTarget(unitID,0)
 		end

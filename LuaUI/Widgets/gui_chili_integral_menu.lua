@@ -16,13 +16,32 @@ end
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
--- Configuration
+-- Spring localizations
+local spEcho = Spring.Echo
+local spGetActiveCommand = Spring.GetActiveCommand
+local spGetCmdDescIndex = Spring.GetCmdDescIndex
+local spGetFactoryCommands = Spring.GetFactoryCommands
+local spGetModKeyState = Spring.GetModKeyState
+local spGetMouseState = Spring.GetMouseState
+local spGetRealBuildQueue = Spring.GetRealBuildQueue
+local spGetSelectedUnits = Spring.GetSelectedUnits
+local spGetSelectedUnitsCount = Spring.GetSelectedUnitsCount
+local spGetSpectatingState = Spring.GetSpectatingState
+local spGetUnitDefID = Spring.GetUnitDefID
+local spGetUnitHealth = Spring.GetUnitHealth
+local spGetUnitIsBuilding = Spring.GetUnitIsBuilding
+local spGetUnitRepeat = Spring.Utilities.GetUnitRepeat
+local spGetViewGeometry = Spring.GetViewGeometry
+local spGiveOrderToUnit = Spring.GiveOrderToUnit
+local spSetActiveCommand = Spring.SetActiveCommand
 
+-- Configuration
 include("colors.lua")
 include("keysym.lua")
 local specialKeyCodes = include("Configs/integral_menu_special_keys.lua")
 local custom_cmd_actions = include("Configs/customCmdTypes.lua")
 local cullingSettingsList, commandCulling =  include("Configs/integral_menu_culling.lua")
+local transkey = include("Configs/transkey.lua")
 
 -- Chili classes
 local Chili
@@ -57,6 +76,13 @@ local DRAW_NAME_COMMANDS = {
 	[CMD.STOCKPILE] = true, -- draws stockpile progress (command handler sends correct string).
 }
 
+local DYNAMIC_COMMANDS = {
+	[CMD_ONECLICK_WEAPON] = true,
+	[CMD.MANUALFIRE] = true,
+}
+
+local REMOVE_TAG_FRAMES = 180 -- Game frames between reseting the tag removal table.
+
 -- Defined upon learning the appropriate colors
 local BUTTON_COLOR
 local BUTTON_FOCUS_COLOR
@@ -71,7 +97,7 @@ EPIC_NAME_UNITS = "epic_chili_integral_menu_tab_units"
 local modOptions = Spring.GetModOptions()
 local disabledTabs = {}
 
-if Spring.GetModOptions().campaign_debug_units ~= "1" then
+if modOptions.campaign_debug_units ~= "1" then
 	if modOptions.integral_disable_economy == "1" then
 		disabledTabs.economy = true
 	end
@@ -90,10 +116,7 @@ end
 --------------------------------------------------------------------------------
 -- Command Handling and lower variables
 
-configurationName = "Configs/integral_menu_config.lua"
-local commandPanels, commandPanelMap, commandDisplayConfig, hiddenCommands, textConfig, buttonLayoutConfig, instantCommands, cmdPosDef -- In Initialize = include("Configs/integral_menu_config.lua")
-
-local fontObjects = {} -- Filled in init
+local commandPanels, commandPanelMap, commandDisplayConfig, hiddenCommands, textConfig, buttonLayoutConfig, instantCommands, cmdPosDef = include("Configs/integral_menu_config.lua")
 
 local statePanel = {}
 local tabPanel
@@ -117,8 +140,8 @@ options_order = {
 	'helpwindow', 'commands_reset_default', 'commands_enable_all', 'commands_disable_all', 'states_enable_all', 'states_disable_all',
 }
 
-local commandPanelPath = 'Hotkeys/Command Panel'
-local customGridPath = 'Hotkeys/Command Panel/Custom'
+local commandPanelPath = 'Hotkeys/Grid Hotkeys'
+local customGridPath = 'Hotkeys/Grid Hotkeys/Custom'
 local commandOptPath = 'Settings/Interface/Commands'
 
 local function UpdateHolderSizes()
@@ -137,7 +160,7 @@ WG.RemoveRoamState = true -- matches default
 options = {
 	simple_mode = {
 		name = "Large State Icons",
-		desc = "Increases state toggle size and allows them to draw unmodified tooltips. Some states may need to be culled under Settings/Commands for large stats to fit.",
+		desc = "Large state icons are arranged in four rows and display their hotkey (if the hotkey is short). When disabled, the icons are arranged in five rows and do not display hotkeys. Individual states can be added or removed under Settings -> Interface -> Commands.",
 		type = 'bool',
 		value = true,
 		OnChange = function(self)
@@ -147,7 +170,7 @@ options = {
 	},
 	enable_return_fire = {
 		name = "Enable return fire state",
-		desc = "When enabled, turns Hold Fire into a triple-toggle state with Return Fire as an additional option.",
+		desc = "When enabled, the Hold Fire state is extended to a three-option toggle with Return Fire as an additional option.",
 		type = 'bool',
 		value = false,
 		OnChange = function(self)
@@ -158,10 +181,12 @@ options = {
 			UpdateHolderSizes() -- Need to delete buttons to change tooltips
 		end,
 		path = commandOptPath,
+		simpleMode = true,
+		everyMode = true,
 	},
 	enable_roam = {
 		name = "Enable roam move state",
-		desc = "When enabled, turns Hold Position into a triple-toggle state with Roam as an additional option.",
+		desc = "When enabled, the Hold Position state is extended to a three-option toggle with Roam as an additional option.",
 		type = 'bool',
 		value = false,
 		OnChange = function(self)
@@ -172,6 +197,8 @@ options = {
 			UpdateHolderSizes() -- Need to delete buttons to change tooltips
 		end,
 		path = commandOptPath,
+		simpleMode = true,
+		everyMode = true,
 	},
 	background_opacity = {
 		name = "Opacity",
@@ -189,6 +216,7 @@ options = {
 			{name = 'QWERTY (standard)',key = 'qwerty', hotkey = nil},
 			{name = 'QWERTZ (central Europe)', key = 'qwertz', hotkey = nil},
 			{name = 'AZERTY (France)', key = 'azerty', hotkey = nil},
+			{name = 'Dvorak (standard)', key = 'dvorak', hotkey = nil},
 			{name = 'Configure in "Custom" (below)', key = 'custom', hotkey = nil},
 			{name = 'Disable Grid Keys', key = 'none', hotkey = nil},
 		},
@@ -242,11 +270,11 @@ options = {
 		name = "Apply Changes",
 		type = 'button',
 		path = customGridPath,
-		noHotkey = true,
 	},
 	label_apply = {
-		type = 'label',
-		name = 'Click to apply changes. They are also applied the next time the game is launched.',
+		type = 'text',
+		name = 'Note: Click above to refresh',
+		value = 'Update modified custom grid hotkeys by clicking the button above. Reselecting any selected units may also be required. Note that "Apply Changes" can be bound to a key for convinence.',
 		path = customGridPath
 	},
 	label_tab = {
@@ -470,7 +498,7 @@ local function TabClickFunction(mouse)
 	if not mouse then
 		return false
 	end
-	local _,_, meta,_ = Spring.GetModKeyState()
+	local _,_, meta,_ = spGetModKeyState()
 	if not meta then
 		return false
 	end
@@ -520,6 +548,7 @@ AddCommandCullOptions()
 
 local buttonsByCommand = {}
 local alreadyRemovedTag = {}
+local lastRemovedTagResetFrame = false
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -569,7 +598,7 @@ local function UpdateReturnToOrders(cmdID)
 	end
 	
 	if (not returnToOrdersCommand) and options.ctrlDisableGrid.value then
-		local alt, ctrl, meta, shift = Spring.GetModKeyState()
+		local alt, ctrl, meta, shift = spGetModKeyState()
 		SetGridHotkeysEnabled(not ctrl)
 	else
 		SetGridHotkeysEnabled(not returnToOrdersCommand)
@@ -652,7 +681,7 @@ local function GenerateGridKeyMap(name)
 			if key then
 				ret[key] = {i, j}
 			else
-				Spring.Echo("LUA_ERRRUN", "Integral menu missing key for", i, j, name)
+				spEcho("LUA_ERRRUN", "Integral menu missing key for", i, j, name)
 			end
 		end
 	end
@@ -766,7 +795,7 @@ local function UpdateBackgroundSkin()
 	local newClass
 	
 	if options.fancySkinning.value then
-		local selectedCount = Spring.GetSelectedUnitsCount()
+		local selectedCount = spGetSelectedUnitsCount()
 		if selectedCount and selectedCount > 0 then
 			if options.flushLeft.value then
 				newClass = skin.panel_0120_small
@@ -813,7 +842,7 @@ local function GetCmdPosParameters(cmdID)
 		end
 		return def.pos, def.priority
 	end
-	--Spring.Echo("Unknown GetCmdPosParameters", cmdID)
+	--spEcho("Unknown GetCmdPosParameters", cmdID)
 	return 1, 100
 end
 
@@ -837,6 +866,11 @@ local function MoveOrRemoveCommands(cmdID, factoryUnitID, commands, queuePositio
 		return
 	end
 	
+	if (not lastRemovedTagResetFrame) or lastRemovedTagResetFrame + REMOVE_TAG_FRAMES < Spring.GetGameFrame() then
+		alreadyRemovedTag = {}
+		lastRemovedTagResetFrame = Spring.GetGameFrame()
+	end
+	
 	-- delete from back so that the order is not canceled while under construction
 	local i = queuePosition
 	local j = 0
@@ -850,11 +884,11 @@ local function MoveOrRemoveCommands(cmdID, factoryUnitID, commands, queuePositio
 			end
 	
 			alreadyRemovedTag[cmdTag] = true
-			Spring.GiveOrderToUnit(factoryUnitID, CMD.REMOVE, {cmdTag}, CMD.OPT_CTRL)
+			spGiveOrderToUnit(factoryUnitID, CMD.REMOVE, {cmdTag}, CMD.OPT_CTRL)
 			if reinsertPosition then
 				local opts = thisCmd.options
 				local coded = opts.coded
-				Spring.GiveOrderToUnit(factoryUnitID, CMD.INSERT, {reinsertPosition, cmdID, coded}, CMD.OPT_CTRL + CMD.OPT_ALT)
+				spGiveOrderToUnit(factoryUnitID, CMD.INSERT, {reinsertPosition, cmdID, coded}, CMD.OPT_CTRL + CMD.OPT_ALT)
 			end
 			j = j + 1
 		end
@@ -863,7 +897,7 @@ local function MoveOrRemoveCommands(cmdID, factoryUnitID, commands, queuePositio
 end
 
 local function MoveCommandBlock(factoryUnitID, queueCmdID, moveBlock, insertBlock)
-	local commands = Spring.GetFactoryCommands(factoryUnitID, -1)
+	local commands = spGetFactoryCommands(factoryUnitID, -1)
 	if not commands then
 		return
 	end
@@ -918,7 +952,7 @@ local function MoveCommandBlock(factoryUnitID, queueCmdID, moveBlock, insertBloc
 end
 
 local function QueueClickFunc(mouse, right, alt, ctrl, meta, shift, queueCmdID, factoryUnitID, queueBlock)
-	local commands = Spring.GetFactoryCommands(factoryUnitID, -1)
+	local commands = spGetFactoryCommands(factoryUnitID, -1)
 	if not commands then
 		return true
 	end
@@ -968,25 +1002,46 @@ local function QueueClickFunc(mouse, right, alt, ctrl, meta, shift, queueCmdID, 
 	end
 	
 	for i = 1, inputMult do
-		Spring.GiveOrderToUnit(factoryUnitID, CMD.INSERT, {queuePosition, queueCmdID, 0 }, CMD.OPT_ALT + CMD.OPT_CTRL)
+		spGiveOrderToUnit(factoryUnitID, CMD.INSERT, {queuePosition, queueCmdID, 0 }, CMD.OPT_ALT + CMD.OPT_CTRL)
 	end
 	return true
 end
 
 local function ClickFunc(mouse, cmdID, isStructure, factoryUnitID, fakeFactory, isQueueButton, queueBlock)
 	local left, right = mouse == 1, mouse == 3
-	local alt, ctrl, meta, shift = Spring.GetModKeyState()
+	local alt, ctrl, meta, shift = spGetModKeyState()
+	
+	-- RMB beats Alt since Alt is opposed to the concept of removing orders.
+	if right then
+		alt = false
+	end
+	
 	if factoryUnitID and isQueueButton then
-		QueueClickFunc(mouse, right, alt, ctrl, meta, shift, cmdID, factoryUnitID, queueBlock)
+		if meta and cmdID then
+			local bq = Spring.GetUnitCmdDescs(factoryUnitID)
+			local bqidx = Spring.FindUnitCmdDesc(factoryUnitID, cmdID)
+			if bqidx then
+				local cmddsc = bq[bqidx]
+				if cmddsc then
+					local udid = UnitDefNames[cmddsc.name]
+					if udid then
+						local x, y = spGetMouseState()
+						WG.MakeStatsWindow(udid, x, y, factoryUnitID)
+					end
+				end
+			end
+		else
+			QueueClickFunc(mouse, right, alt, ctrl, meta, shift, cmdID, factoryUnitID, queueBlock)
+		end
 		return true
 	end
 
 	if alt and factoryUnitID and options.altInsertBehind.value and (not fakeFactory) then
 		-- Repeat alt has to be handled by engine so that the command is removed after completion.
-		if not Spring.Utilities.GetUnitRepeat(factoryUnitID) then
+		if not spGetUnitRepeat(factoryUnitID) then
 			local inputMult = 1*(shift and 5 or 1)*(ctrl and 20 or 1)
 			for i = 1, inputMult do
-				Spring.GiveOrderToUnit(factoryUnitID, CMD.INSERT, {1, cmdID, 0 }, CMD.OPT_ALT + CMD.OPT_CTRL)
+				spGiveOrderToUnit(factoryUnitID, CMD.INSERT, {1, cmdID, 0 }, CMD.OPT_ALT + CMD.OPT_CTRL)
 			end
 			if WG.noises then
 				WG.noises.PlayResponse(factoryUnitID, cmdID)
@@ -995,9 +1050,9 @@ local function ClickFunc(mouse, cmdID, isStructure, factoryUnitID, fakeFactory, 
 		end
 	end
 	
-	local index = Spring.GetCmdDescIndex(cmdID)
+	local index = spGetCmdDescIndex(cmdID)
 	if index then
-		Spring.SetActiveCommand(index, mouse or 1, left, right, alt, ctrl, meta, shift)
+		spSetActiveCommand(index, mouse or 1, left, right, alt, ctrl, meta, shift)
 		if not instantCommands[cmdID] then
 			UpdateButtonSelection(cmdID)
 		end
@@ -1014,6 +1069,7 @@ end
 
 local function GetButton(parent, name, selectionIndex, x, y, xStr, yStr, width, height, buttonLayout, isStructure, onClick)
 	local cmdID
+	local isStateCommand
 	local usingGrid
 	local factoryUnitID
 	local fakeFactory
@@ -1025,18 +1081,18 @@ local function GetButton(parent, name, selectionIndex, x, y, xStr, yStr, width, 
 	local keyToShowWhenVisible
 	
 	local function DoClick(_, _, _, mouse)
-		if buttonLayout.ClickFunction and buttonLayout.ClickFunction() then
+		if buttonLayout.ClickFunction and buttonLayout.ClickFunction(cmdID and instantCommands[cmdID], isStateCommand) then
 			return false
 		end
 		if isDisabled then
 			return false
 		end
-		local sucess = ClickFunc(mouse, cmdID, isStructure, factoryUnitID, fakeFactory, isQueueButton, x)
-		if sucess and onClick then
+		local success = ClickFunc(mouse, cmdID, isStructure, factoryUnitID, fakeFactory, isQueueButton, x)
+		if success and onClick then
 			-- Don't do the onClick if the command was not eaten by the menu.
 			onClick(cmdID)
 		end
-		return sucess
+		return success
 	end
 	
 	local button = Button:New {
@@ -1047,6 +1103,7 @@ local function GetButton(parent, name, selectionIndex, x, y, xStr, yStr, width, 
 		height = height,
 		caption = buttonLayout.caption or false,
 		noFont = not buttonLayout.caption,
+		objectOverrideFont = WG.GetFont(14),
 		padding = {0, 0, 0, 0},
 		parent = parent,
 		preserveChildrenOrder = true,
@@ -1144,7 +1201,7 @@ local function GetButton(parent, name, selectionIndex, x, y, xStr, yStr, width, 
 				height = config.height,
 				align = config.align,
 				fontsize = config.fontsize,
-				objectOverrideFont = fontObjects[config.fontsize],
+				objectOverrideFont = WG.GetFont(config.fontsize),
 				caption = text,
 				parent = button,
 			}
@@ -1251,7 +1308,7 @@ local function GetButton(parent, name, selectionIndex, x, y, xStr, yStr, width, 
 	
 	local function SetGridKey(key)
 		usingGrid = true
-		hotkeyText = GetGreenStr(key)
+		hotkeyText = GetGreenStr(transkey[string.lower(key)] or key)
 		SetText(textConfig.topLeft.name, hotkeyText)
 	end
 	
@@ -1310,7 +1367,7 @@ local function GetButton(parent, name, selectionIndex, x, y, xStr, yStr, width, 
 						if not currentOverflow then
 							return
 						end
-						local buildQueue = Spring.GetRealBuildQueue(factoryUnitID)
+						local buildQueue = spGetRealBuildQueue(factoryUnitID)
 						
 						local overflowString = ""
 						for i = x, #buildQueue do
@@ -1367,18 +1424,31 @@ local function GetButton(parent, name, selectionIndex, x, y, xStr, yStr, width, 
 			SetText(textConfig.bottomRightLarge.name, command.name)
 		end
 		
+		isStateCommand = command and (command.type == CMDTYPE.ICON_MODE and #command.params > 1)
+		local state = isStateCommand and (((WG.GetOverriddenState and WG.GetOverriddenState(newCmdID)) or command.params[1]) + 1)
 		if cmdID == newCmdID then
-			local isStateCommand = command and (command.type == CMDTYPE.ICON_MODE and #command.params > 1)
 			if isStateCommand then
-				local state = command.params[1] + 1
 				local displayConfig = GetDisplayConfig(cmdID)
 				if displayConfig then
 					local texture = displayConfig.texture[state]
 					if displayConfig.stateTooltip then
-						button.tooltip = GetButtonTooltip(displayConfig, command, isStateCommand and (command.params[1] + 1))
+						button.tooltip = GetButtonTooltip(displayConfig, command, state)
 					end
 					SetImage(texture)
 				end
+			elseif newCmdID and DYNAMIC_COMMANDS[newCmdID] then
+				-- Reset potentially stale special weapon iamge and tooltip.
+				-- Action is the same so hotkey does not require a reset.
+				local displayConfig = GetDisplayConfig(cmdID)
+				button.tooltip = GetButtonTooltip(displayConfig, command, state)
+				local texture = (displayConfig and displayConfig.texture) or command.texture
+				SetImage(texture)
+			end
+			if not notGlobal then
+				buttonsByCommand[cmdID] = externalFunctionsAndData
+			end
+			if buildProgress then
+				externalFunctionsAndData.SetProgressBar(0)
 			end
 			if command then
 				SetDisabled(command.disabled)
@@ -1410,9 +1480,8 @@ local function GetButton(parent, name, selectionIndex, x, y, xStr, yStr, width, 
 			return
 		end
 		
-		local isStateCommand = (command.type == CMDTYPE.ICON_MODE and #command.params > 1)
 		local displayConfig = GetDisplayConfig(cmdID)
-		button.tooltip = GetButtonTooltip(displayConfig, command, isStateCommand and (command.params[1] + 1))
+		button.tooltip = GetButtonTooltip(displayConfig, command, state)
 		
 		if command.action then
 			local hotkey = GetHotkeyText(command.action)
@@ -1429,11 +1498,10 @@ local function GetButton(parent, name, selectionIndex, x, y, xStr, yStr, width, 
 		
 		if isStateCommand then
 			if displayConfig then
-				local state = command.params[1] + 1
 				local texture = displayConfig.texture[state]
 				SetImage(texture)
 			else
-				Spring.Echo("Error, missing command config", cmdID)
+				spEcho("Error, missing command config", cmdID)
 			end
 		else
 			local texture = (displayConfig and displayConfig.texture) or command.texture
@@ -1660,12 +1728,12 @@ local function GetQueuePanel(parent, columns)
 		if not button then
 			return
 		end
-		local unitBuildID = Spring.GetUnitIsBuilding(factoryUnitID)
+		local unitBuildID = spGetUnitIsBuilding(factoryUnitID)
 		if not unitBuildID then
 			button.SetProgressBar(0)
 			return
 		end
-		local progress = select(5, Spring.GetUnitHealth(unitBuildID))
+		local progress = select(5, spGetUnitHealth(unitBuildID))
 		button.SetProgressBar(progress)
 	end
 	
@@ -1676,13 +1744,10 @@ local function GetQueuePanel(parent, columns)
 	
 	function externalFunctions.UpdateFactory(newFactoryUnitID, newFactoryUnitDefID, selectionIndex)
 		local buttonCount = 0
-		
-		alreadyRemovedTag = {}
-		
 		factoryUnitID = newFactoryUnitID
 		factoryUnitDefID = newFactoryUnitDefID
 	
-		local buildQueue = Spring.GetRealBuildQueue(factoryUnitID)
+		local buildQueue = spGetRealBuildQueue(factoryUnitID)
 	
 		local buildDefIDCounts = {}
 		if buildQueue then
@@ -1737,6 +1802,7 @@ local function GetTabButton(panel, contentControl, name, humanName, hotkey, loit
 		caption = humanName,
 		padding = {0, 0, 0, 1},
 		tooltip = NO_TOOLTIP,
+		objectOverrideFont = WG.GetFont(14),
 		OnClick = {
 			function()
 				DoClick(true)
@@ -1746,8 +1812,7 @@ local function GetTabButton(panel, contentControl, name, humanName, hotkey, loit
 	button.backgroundColor[4] = 0.4
 	
 	if disabled then
-		button.font.outlineColor = {0, 0, 0, 1}
-		button.font.color = {0.6, 0.6, 0.6, 1}
+		button.font = WG.GetSpecialFont(14, "integral_grey", {outlineColor = {0, 0, 0, 1}, color = {0.6, 0.6, 0.6, 1}})
 		button.supressButtonReaction = true
 	end
 	
@@ -1914,10 +1979,10 @@ end
 -- Command Handling
 
 local function GetSelectionValues()
-	local selection = Spring.GetSelectedUnits()
+	local selection = spGetSelectedUnits()
 	for i = 1, #selection do
 		local unitID = selection[i]
-		local defID = Spring.GetUnitDefID(unitID)
+		local defID = spGetUnitDefID(unitID)
 		if defID and (UnitDefs[defID].isFactory or UnitDefs[defID].customParams.isfakefactory) and (not UnitDefs[defID].customParams.notreallyafactory) then
 			return unitID, defID, UnitDefs[defID].customParams.isfakefactory, #selection
 		end
@@ -2107,29 +2172,11 @@ end
 --------------------------------------------------------------------------------
 -- Initialization
 
-local function InitializeFonts()
-	local sizes = {12, 14, 16}
-
-	for i = 1, #sizes do
-		fontObjects[sizes[i]] = Chili.Font:New {
-			font          = "FreeSansBold.otf",
-			size          = sizes[i],
-			shadow        = true,
-			outline       = false,
-			outlineWidth  = 3,
-			outlineWeight = 3,
-			color         = {1, 1, 1, 1},
-			outlineColor  = {0, 0, 0, 1},
-			autoOutlineColor = true,
-		}
-	end
-end
-
 local gridKeyMap, gridMap, gridCustomOverrides -- Configuration requires this
 
 local function InitializeControls()
 	-- Set the size for the default settings.
-	local screenWidth, screenHeight = Spring.GetViewGeometry()
+	local screenWidth, screenHeight = spGetViewGeometry()
 	local width = math.max(350, math.min(450, screenWidth*screenHeight*0.0004))
 	local height = math.min(screenHeight/4.5, 200*width/450)  + 8
 
@@ -2149,6 +2196,7 @@ local function InitializeControls()
 		resizable = false,
 		tweakDraggable = true,
 		tweakResizable = true,
+		noFont = true,
 		padding = {0, 0, 0, 0},
 		color = {0, 0, 0, 0},
 		parent = screen0,
@@ -2182,6 +2230,7 @@ local function InitializeControls()
 		bottom = 0,
 		draggable = false,
 		resizable = false,
+		noFont = true,
 		padding = {0, 0, 0, 0},
 		backgroundColor = {1, 1, 1, options.background_opacity.value},
 		noClickThrough = true,
@@ -2297,7 +2346,7 @@ function options.applyCustomGrid.OnChange()
 end
 
 function options.hide_when_spectating.OnChange(self)
-	local isSpec = Spring.GetSpectatingState()
+	local isSpec = spGetSpectatingState()
 	background:SetVisibility(WG.IntegralVisible and not (self.value and isSpec))
 end
 
@@ -2315,8 +2364,11 @@ function options.unitsHotkeys2.OnChange(self)
 end
 
 local function CheckTabHotkeyAllowed()
+	local alt, ctrl = spGetModKeyState()
+	if alt then
+		return false
+	end
 	if options.ctrlDisableGrid.value then
-		local _, ctrl = Spring.GetModKeyState()
 		if ctrl then
 			return false
 		end
@@ -2406,6 +2458,7 @@ options.fancySkinning.OnChange = UpdateBackgroundSkin
 -- External functions
 
 local externalFunctions = {} -- Appear unused in repo but are used by missions.
+local initialized = false
 
 function externalFunctions.GetCommandButtonPosition(cmdID)
 	if not buttonsByCommand[cmdID] then
@@ -2430,14 +2483,22 @@ function externalFunctions.GetTabPosition(tabName)
 	return false
 end
 
+function externalFunctions.UpdateCommands()
+	if not initialized then
+		return
+	end
+
+	local commands = widgetHandler.commands
+	local customCommands = widgetHandler.customCommands
+	ProcessAllCommands(commands, customCommands)
+end
+
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 -- Widget Interface
 
-local initialized = false
-
 function widget:Update()
-	local _,cmdID = Spring.GetActiveCommand()
+	local _,cmdID = spGetActiveCommand()
 	UpdateButtonSelection(cmdID)
 	UpdateReturnToOrders(cmdID)
 end
@@ -2482,19 +2543,13 @@ end
 
 function widget:PlayerChanged(playerID)
 	if options.hide_when_spectating.value then
-		local isSpec = Spring.GetSpectatingState()
+		local isSpec = spGetSpectatingState()
 		background:SetVisibility(WG.IntegralVisible and not isSpec)
 	end
 end
 
 function widget:CommandsChanged()
-	if not initialized then
-		return
-	end
-
-	local commands = widgetHandler.commands
-	local customCommands = widgetHandler.customCommands
-	ProcessAllCommands(commands, customCommands)
+	externalFunctions.UpdateCommands()
 end
 
 function widget:GameFrame(n)
@@ -2510,8 +2565,6 @@ function widget:GameFrame(n)
 end
 
 function widget:Initialize()
-	commandPanels, commandPanelMap, commandDisplayConfig, hiddenCommands, textConfig, buttonLayoutConfig, instantCommands, cmdPosDef = include(configurationName)
-	
 	RemoveAction("nextmenu")
 	RemoveAction("prevmenu")
 	initialized = true
@@ -2529,7 +2582,6 @@ function widget:Initialize()
 	Control = Chili.Control
 	screen0 = Chili.Screen0
 	
-	InitializeFonts()
 	InitializeControls()
 	
 	WG.IntegralMenu = externalFunctions

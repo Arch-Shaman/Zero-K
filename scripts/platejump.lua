@@ -11,7 +11,6 @@ local head1, head2, nano1, nano2, nano3, nano4 = piece('head1', 'head2', 'nano1'
 
 --local vars
 local nanoPieces = {nano1, nano2, nano3, nano4}
-local nanoIdx = 1
 local smokePiece = {house, head1, head2}
 
 local SIG_Open = 1
@@ -24,8 +23,7 @@ local function Open()
 
 	Sleep(200)
 	
---	SetUnitValue(COB.YARD_OPEN, 1) --Tobi said its not necessary
-	SetUnitValue(COB.BUGGER_OFF, 1)
+	--SetUnitValue(COB.BUGGER_OFF, 1)
 	SetInBuildDistance(true)
 end
 
@@ -35,7 +33,7 @@ local function Close()
 	SetSignalMask(SIG_Close) --set the signal to kill the closing animation
 
 --	SetUnitValue(COB.YARD_OPEN, 0)
-	SetUnitValue(COB.BUGGER_OFF, 0)
+	--SetUnitValue(COB.BUGGER_OFF, 0)
 	SetInBuildDistance(false)
 end
 
@@ -45,21 +43,6 @@ function script.Create()
 		Sleep(400)
 	end
 	StartThread(GG.Script.SmokeUnit, unitID, smokePiece)
-end
-
-function script.QueryNanoPiece()
-	if (nanoIdx == 4) then
-		nanoIdx = 1
-	else
-		nanoIdx = nanoIdx + 1
-	end
-
-	local nano = nanoPieces[nanoIdx]
-
-	--// send to LUPS
-	GG.LUPS.QueryNanoPiece(unitID,unitDefID,spGetUnitTeam(unitID),nano)
-
-	return nano
 end
 
 function script.Activate ()

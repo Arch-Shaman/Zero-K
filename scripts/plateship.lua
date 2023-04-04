@@ -9,25 +9,20 @@ local smokePiece  = { body, nano1, nano1 }
 local explodables = { body, float1, float2}
 
 local function Open ()
-	SetUnitValue (COB.YARD_OPEN, 1)
+	SetUnitValue(COB.YARD_OPEN, 1)
 	SetInBuildDistance(true)
-	SetUnitValue (COB.BUGGER_OFF, 1)
+	--SetUnitValue(COB.BUGGER_OFF, 1)
 end
 
 local function Close()
-	SetUnitValue (COB.YARD_OPEN, 0)
-	SetUnitValue (COB.BUGGER_OFF, 0)
+	SetUnitValue(COB.YARD_OPEN, 0)
+	--SetUnitValue(COB.BUGGER_OFF, 0)
 	SetInBuildDistance(false)
 end
 
 function script.Create()
 	StartThread (GG.Script.SmokeUnit, unitID, smokePiece)
 	Spring.SetUnitNanoPieces (unitID, nanoPieces)
-end
-
-function script.QueryNanoPiece ()
-	GG.LUPS.QueryNanoPiece (unitID, unitDefID, Spring.GetUnitTeam(unitID), nanos)
-	return nanos
 end
 
 function script.Activate ()

@@ -1,7 +1,7 @@
 function widget:GetInfo()
 	return {
 		name    = "Chili Share menu v1.24",
-		desc    = "Press H to bring up the chili share menu.",
+		desc    = "FPS style (whole screen, hold to show) player list with comsharing UI",
 		author  = "Commshare by Shaman, Playerlist by DeinFreund",
 		date    = "12-3-2016",
 		license = "PD",
@@ -37,6 +37,7 @@ local mySubjectID = -1
 local fontSize = 18
 local badgeWidth = 59*0.6
 local badgeHeight = 24*0.6
+local whrWidth = 35 -- Including margins
 local color2incolor = nil
 local teamZeroPlayers = {}
 local playerInfo = {}
@@ -47,6 +48,7 @@ local images = {
 	pending = 'LuaUI/Images/epicmenu/questionmark.png',
 	leave = 'LuaUI/Images/epicmenu/exit.png',
 	kick = 'LuaUI/Images/advplayerslist/cross.png', -- REPLACE ME
+	report = 'LuaUI/Images/Crystal_Clear_app_error.png', -- REPLACE ME
 	merge = 'LuaUI/Images/Commshare_Merge.png',
 	give = 'LuaUI/Images/gift2.png',
 	giftmetal = 'LuaUI/Images/ibeam.png',
@@ -55,7 +57,10 @@ local images = {
 local defaultamount = 100
 
 local UpdateListFunction
+local SetWantRebuild
 local wantRebuild = false
+
+local KICK_USER = "StartKickPoll_"
 
 local pingCpuColors = {
 	'\255\0\255\0',
@@ -64,6 +69,18 @@ local pingCpuColors = {
 	'\255\255\153\0',
 	'\255\255\0\0',
 	'\255\255\255\255',
+}
+
+-- RGBA. Used as font color of players' WHR.
+local rankColors = {
+	["7"] = {1  , 0   , 1  ,  1},
+	["6"] = {0  , 0.6 , 1  ,  1},
+	["5"] = {0.7, 0.8 , 1  ,  1},
+	["4"] = {1  , 1   , 0  ,  1},
+	["3"] = {1  , 0.65, 0  ,  1},
+	["2"] = {0.8, 0.4 , 0.1,  1},
+	["1"] = {1  , 0   , 0  ,  1},
+	["0"] = {0.5, 0.5 , 0.5,  1},
 }
 
 local function PingTimeOut(pingTime)
@@ -96,6 +113,18 @@ options = {
 		desc = "Fixes old hotkey issues once and then disables.",
 		advanced = true,
 		noHotkey = true,
+	},
+	enableNumWHR = {
+		name  = "Show player rating",
+		type  = "bool",
+		value = false,
+		desc = "Shows the WHR current rating of each player after their name. Uses the rating category of the current game mode (Casual or MM).",
+		noHotkey = true,
+		OnChange = function(self)
+			if SetWantRebuild then
+				SetWantRebuild()
+			end
+		end,
 	},
 	sharemenu = {
 		name = 'Show Player List',
@@ -350,6 +379,13 @@ end
 
 local oldSubjects = {}
 
+local function SafeSetButtonVisibility(button, visibility)
+	if not button then
+		return
+	end
+	button:SetVisibility(visibility)
+end
+
 local function UpdatePlayer(subject)
 	--Spring.Echo("playerupdate " .. subject.name)
 	if givemebuttons[subject.id] == nil or built == false then
@@ -375,114 +411,114 @@ local function UpdatePlayer(subject)
 	if subject.player and subject.player == myPlayerID then
 		if givemebuttons[subject.id]["leave"] then
 			if (teamLeader or sharemode == false or mySpec) then
-				givemebuttons[subject.id]["leave"]:SetVisibility(false)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["leave"], false)
 			elseif not teamLeader and #Spring.GetPlayerList(myteamID) > 1 and sharemode then
-				givemebuttons[subject.id]["leave"]:SetVisibility(true)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["leave"], true)
 			end
 		end
-		givemebuttons[subject.id]["pingCtrl"]:SetVisibility(true)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["pingCtrl"], true)
 	elseif subject.ai then
 		--Spring.Echo("dec3")
-		givemebuttons[subject.id]["metalbar"]:SetVisibility(true)
-		givemebuttons[subject.id]["energybar"]:SetVisibility(true)
-		givemebuttons[subject.id]["metalin"]:SetVisibility(true)
-		givemebuttons[subject.id]["energyin"]:SetVisibility(true)
-		givemebuttons[subject.id]["offHolder"]:SetVisibility(true)
-		givemebuttons[subject.id]["defHolder"]:SetVisibility(true)
-		givemebuttons[subject.id]["metal"]:SetVisibility(true)
-		givemebuttons[subject.id]["energy"]:SetVisibility(true)
-		givemebuttons[subject.id]["unit"]:SetVisibility(true)
-		givemebuttons[subject.id]["pingCtrl"]:SetVisibility(false)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["metalbar"], true)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["energybar"], true)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["metalin"], true)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["energyin"], true)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["offHolder"], true)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["defHolder"], true)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["metal"], true)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["energy"], true)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["unit"], true)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["pingCtrl"], false)
 		if subject.allyteam ~= myallyteamID or specFullView then -- hostile ai's stuff.
 			--Spring.Echo("dec4")
-			givemebuttons[subject.id]["metal"]:SetVisibility(false)
-			givemebuttons[subject.id]["energy"]:SetVisibility(false)
-			givemebuttons[subject.id]["unit"]:SetVisibility(false)
+			SafeSetButtonVisibility(givemebuttons[subject.id]["metal"], false)
+			SafeSetButtonVisibility(givemebuttons[subject.id]["energy"], false)
+			SafeSetButtonVisibility(givemebuttons[subject.id]["unit"], false)
 			if (not specFullView ) then
 				--Spring.Echo("dec5")
-				givemebuttons[subject.id]["metalbar"]:SetVisibility(false)
-				givemebuttons[subject.id]["offHolder"]:SetVisibility(false)
-				givemebuttons[subject.id]["defHolder"]:SetVisibility(false)
-				givemebuttons[subject.id]["energybar"]:SetVisibility(false)
-				givemebuttons[subject.id]["metalin"]:SetVisibility(false)
-				givemebuttons[subject.id]["energyin"]:SetVisibility(false)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["metalbar"], false)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["offHolder"], false)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["defHolder"], false)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["energybar"], false)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["metalin"], false)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["energyin"], false)
 			end
 		end
 	elseif subject.allyteam ~= myallyteamID or specFullView then -- hostile people's stuff.
 		--Spring.Echo("dec6")
-		givemebuttons[subject.id]["kick"]:SetVisibility(false)
-		givemebuttons[subject.id]["commshare"]:SetVisibility(false)
-		givemebuttons[subject.id]["accept"]:SetVisibility(false)
-		givemebuttons[subject.id]["metal"]:SetVisibility(false)
-		givemebuttons[subject.id]["energy"]:SetVisibility(false)
-		givemebuttons[subject.id]["unit"]:SetVisibility(false)
-		givemebuttons[subject.id]["pingCtrl"]:SetVisibility(true)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["kick"], false)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["commshare"], false)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["accept"], false)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["metal"], false)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["energy"], false)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["unit"], false)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["pingCtrl"], true)
 		if (not specFullView or subject.spec) then
 			--Spring.Echo("dec7")
-			givemebuttons[subject.id]["metalbar"]:SetVisibility(false)
-			givemebuttons[subject.id]["offHolder"]:SetVisibility(false)
-			givemebuttons[subject.id]["defHolder"]:SetVisibility(false)
-			givemebuttons[subject.id]["energybar"]:SetVisibility(false)
-			givemebuttons[subject.id]["metalin"]:SetVisibility(false)
-			givemebuttons[subject.id]["energyin"]:SetVisibility(false)
+			SafeSetButtonVisibility(givemebuttons[subject.id]["metalbar"], false)
+			SafeSetButtonVisibility(givemebuttons[subject.id]["offHolder"], false)
+			SafeSetButtonVisibility(givemebuttons[subject.id]["defHolder"], false)
+			SafeSetButtonVisibility(givemebuttons[subject.id]["energybar"], false)
+			SafeSetButtonVisibility(givemebuttons[subject.id]["metalin"], false)
+			SafeSetButtonVisibility(givemebuttons[subject.id]["energyin"], false)
 		end
 	elseif mySpec then -- Spectator, but not fullview
-		givemebuttons[subject.id]["pingCtrl"]:SetVisibility(true)
-		givemebuttons[subject.id]["kick"]:SetVisibility(false)
-		givemebuttons[subject.id]["commshare"]:SetVisibility(false)
-		givemebuttons[subject.id]["metal"]:SetVisibility(false)
-		givemebuttons[subject.id]["energy"]:SetVisibility(false)
-		givemebuttons[subject.id]["unit"]:SetVisibility(false)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["pingCtrl"], true)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["kick"], false)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["commshare"], false)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["metal"], false)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["energy"], false)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["unit"], false)
 	else -- other people's stuff.
-		givemebuttons[subject.id]["pingCtrl"]:SetVisibility(true)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["pingCtrl"], true)
 		if teamID == myteamID then
 			if amiteamleader then
 				--Spring.Echo("dec8")
-				givemebuttons[subject.id]["kick"]:SetVisibility(true)
-				givemebuttons[subject.id]["commshare"]:SetVisibility(false)
-				givemebuttons[subject.id]["metal"]:SetVisibility(false)
-				givemebuttons[subject.id]["energy"]:SetVisibility(false)
-				givemebuttons[subject.id]["unit"]:SetVisibility(false)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["kick"], true)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["commshare"], false)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["metal"], false)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["energy"], false)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["unit"], false)
 			else
 				--Spring.Echo("dec9")
-				givemebuttons[subject.id]["kick"]:SetVisibility(false)
-				givemebuttons[subject.id]["commshare"]:SetVisibility(false)
-				givemebuttons[subject.id]["metal"]:SetVisibility(false)
-				givemebuttons[subject.id]["energy"]:SetVisibility(false)
-				givemebuttons[subject.id]["unit"]:SetVisibility(false)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["kick"], false)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["commshare"], false)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["metal"], false)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["energy"], false)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["unit"], false)
 			end
 			if sharemode == false then
 				--Spring.Echo("dec10")
-				givemebuttons[subject.id]["commshare"]:SetVisibility(false)
-				givemebuttons[subject.id]["kick"]:SetVisibility(false)
-				givemebuttons[subject.id]["metal"]:SetVisibility(true)
-				givemebuttons[subject.id]["energy"]:SetVisibility(true)
-				givemebuttons[subject.id]["unit"]:SetVisibility(true)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["commshare"], false)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["kick"], false)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["metal"], true)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["energy"], true)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["unit"], true)
 			end
 		else
-			givemebuttons[subject.id]["kick"]:SetVisibility(false)
+			SafeSetButtonVisibility(givemebuttons[subject.id]["kick"], false)
 			if teamLeader == false then
 				--Spring.Echo("dec11")
-				givemebuttons[subject.id]["commshare"]:SetVisibility(false)
-				givemebuttons[subject.id]["metal"]:SetVisibility(false)
-				givemebuttons[subject.id]["energy"]:SetVisibility(false)
-				givemebuttons[subject.id]["unit"]:SetVisibility(false)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["commshare"], false)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["metal"], false)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["energy"], false)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["unit"], false)
 			else
 				--Spring.Echo("dec12")
-				givemebuttons[subject.id]["commshare"]:SetVisibility(true)
-				givemebuttons[subject.id]["metal"]:SetVisibility(true)
-				givemebuttons[subject.id]["energy"]:SetVisibility(true)
-				givemebuttons[subject.id]["unit"]:SetVisibility(true)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["commshare"], true)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["metal"], true)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["energy"], true)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["unit"], true)
 			end
 		end
 	end
 	if (subject.spec) then
-		givemebuttons[subject.id]["metalbar"]:SetVisibility(false)
-		givemebuttons[subject.id]["offHolder"]:SetVisibility(false)
-		givemebuttons[subject.id]["defHolder"]:SetVisibility(false)
-		givemebuttons[subject.id]["energybar"]:SetVisibility(false)
-		givemebuttons[subject.id]["metalin"]:SetVisibility(false)
-		givemebuttons[subject.id]["energyin"]:SetVisibility(false)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["metalbar"], false)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["offHolder"], false)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["defHolder"], false)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["energybar"], false)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["metalin"], false)
+		SafeSetButtonVisibility(givemebuttons[subject.id]["energyin"], false)
 	end
 	RenderName(subject)
 end
@@ -566,6 +602,54 @@ local function BattleKickPlayer(subject)
 	Spring.SendCommands("say !poll kick " .. subject.name)
 end
 
+local function HandleKickMessage(msg)
+	if string.find(msg, KICK_USER) ~= 1 then
+		return
+	end
+	local data = msg:split("_")
+	if not (data and data[2]) then
+		return
+	end
+	
+	Spring.SendCommands("say !poll kick " .. data[2])
+	return true
+end
+
+local function ReportPlayer(subject)
+	local extraText = ""
+	local isSpec = select(3, Spring.GetPlayerInfo(subject.id, false))
+	extraText = extraText .. ((isSpec and "Spectator, ") or "Player, ")
+
+	--[[ Somewhat obsolete given the direct link to battle gives all that info,
+	     but let it hang around in case we discover cases where it doesn't ]]
+	local utils = Spring.Utilities
+	local gametype = utils.Gametype
+	if gametype.isCompStomp() then
+		local humans = #(Spring.GetTeamList(0) or {})
+		extraText = extraText .. humans .. " vs " .. (gametype.isChickens() and "Chickens" or "Bots")
+	elseif gametype.isTeamFFA() then
+		local playerCount = #Spring.GetTeamList() - 1 -- ignore gaia
+		extraText = extraText .. playerCount .. "-man, " .. utils.GetTeamCount() .. "-way Team FFA"
+	elseif gametype.isFFA() then
+		extraText = extraText .. utils.GetTeamCount() .. "-way FFA"
+	else
+		local teamCountFirst = #(Spring.GetTeamList(0) or {}) -- fixme: technically the teams dont need to be 0 and 1
+		local teamCountSecond = #(Spring.GetTeamList(1) or {})
+		extraText = extraText .. teamCountFirst .. "v" .. teamCountSecond
+	end
+	extraText = extraText .. " on " .. Game.mapName
+
+	local gameID = Spring.GetGameRulesParam("GameID")
+	if gameID then
+		extraText = extraText .. " https://zero-k.info/Battles/EngineDetail/" .. gameID
+	end
+
+	local seconds = math.floor(Spring.GetGameFrame()/30)
+	local minutes = math.floor(seconds/60)
+	extraText = extraText .. " at " .. string.format("%d:%02d", minutes, seconds - 60*minutes)
+	Spring.SendLuaMenuMsg("reportUser;" .. subject.name .. ";" .. extraText)
+end
+
 local function GiveUnit(target)
 	local num = Spring.GetSelectedUnitsCount()
 	if num == 0 then
@@ -635,22 +719,21 @@ local function InitName(subject, playerPanel)
 		parent=playerPanel,
 		width=146,
 		height = sizefont+1,
-		fontsize=sizefont + 1,
+		objectOverrideFont = WG.GetFont(sizefont + 1),
 		x=69 + 2*buttonsize,
 		text=subject.name ,
 		y=13
 	}
-	givemebuttons[subject.id]["text"].font.shadow = false
 	givemebuttons[subject.id]["text"]:Invalidate()
 	while (givemebuttons[subject.id]["text"].font:GetTextWidth(subject.name) > givemebuttons[subject.id]["text"].width - buttonsize) do
-		givemebuttons[subject.id]["text"].font.size = givemebuttons[subject.id]["text"].font.size - 1
+		givemebuttons[subject.id]["text"].font = WG.GetFont(givemebuttons[subject.id]["text"].font.size - 1)
 		givemebuttons[subject.id]["text"]:Invalidate()
-		
 	end
 	
 	local bottomRowStartX = 67
 	local bottomRowStartY = 37
 	local bottomInfoStartX = bottomRowStartX + 4*buttonsize + 6
+	local metalBarX = givemebuttons[subject.id]["text"].x + givemebuttons[subject.id]["text"].width + (options.enableNumWHR.value and whrWidth or 0)
 	local infoSize = 48
 	
 	if subject.ai or subject.player ~= Spring.GetMyPlayerID() then
@@ -666,7 +749,7 @@ local function InitName(subject, playerPanel)
 			width='100%',
 			height='100%'}},
 			tooltip="Give selected units.",
-			caption=" "
+			noFont = true,
 		}
 		givemebuttons[subject.id]["metal"] = chili.Button:New{
 			parent = playerPanel,
@@ -688,7 +771,7 @@ local function InitName(subject, playerPanel)
 					height='100%'
 				}
 			},
-			caption=" "
+			noFont = true,
 		}
 		givemebuttons[subject.id]["energy"] = chili.Button:New{
 			parent = playerPanel,
@@ -710,7 +793,7 @@ local function InitName(subject, playerPanel)
 					height='100%'
 				}
 			},
-			caption=" "
+			noFont = true,
 		}
 	end
 	givemebuttons[subject.id]["ping"] = chili.TextBox:New{
@@ -720,7 +803,7 @@ local function InitName(subject, playerPanel)
 		x=12,
 		y=3,
 		textColor={1,1,1,1},
-		fontsize=smallFontSize,
+		objectOverrideFont = WG.GetFont(smallFontSize),
 		margin = {0,0,0,0},
 		padding = {0,0,0,0},
 		text= "100ms"
@@ -731,7 +814,7 @@ local function InitName(subject, playerPanel)
 		x=19,
 		y=5,
 		textColor={1,0.4,0.4,1},
-		fontsize=smallFontSize,
+		objectOverrideFont = WG.GetFont(smallFontSize),
 		margin = {0,0,0,0},
 		padding = {0,0,0,0},
 		text= ""
@@ -742,7 +825,7 @@ local function InitName(subject, playerPanel)
 		x=19,
 		y=5,
 		textColor={0.52,0.52,1,1},
-		fontsize=smallFontSize,
+		objectOverrideFont = WG.GetFont(smallFontSize),
 		margin = {0,0,0,0},
 		padding = {0,0,0,0},
 		text= ""
@@ -765,7 +848,7 @@ local function InitName(subject, playerPanel)
 		margin = {0,0,0,0},
 		padding = {0,0,0,0},
 		width=60,
-		x = givemebuttons[subject.id]["text"].x + givemebuttons[subject.id]["text"].width + buttonsize + 3,
+		x = metalBarX + buttonsize + 3,
 		y = givemebuttons[subject.id]["text"].y - 2,
 		height=buttonsize,
 		tooltip = "This player's network delay (ping)"
@@ -778,10 +861,11 @@ local function InitName(subject, playerPanel)
 		min=0,
 		max=1,
 		width = barWidth,
-		x = givemebuttons[subject.id]["text"].x + givemebuttons[subject.id]["text"].width,
+		x = metalBarX,
 		y = bottomRowStartY - 1,
 		color={136/255,214/255,251/255,1},
-		tooltip = "Your ally's metal."
+		tooltip = "Your ally's metal.",
+		noFont = true,
 	}
 	givemebuttons[subject.id]["energybar"] = chili.Progressbar:New{
 		parent = playerPanel,
@@ -793,14 +877,15 @@ local function InitName(subject, playerPanel)
 		x=givemebuttons[subject.id]["metalbar"].x,
 		y=givemebuttons[subject.id]["metalbar"].y + 12,
 		color={.93,.93,0,1},
-		tooltip = "Your ally's energy."
+		tooltip = "Your ally's energy.",
+		noFont = true,
 	}
 	
 	givemebuttons[subject.id]["metalin"] = chili.TextBox:New{
 		parent=playerPanel,
 		height='50%',
 		width=100,
-		fontsize=smallerFontSize,
+		objectOverrideFont = WG.GetFont(smallerFontSize),
 		x=givemebuttons[subject.id]["metalbar"].x + givemebuttons[subject.id]["metalbar"].width + 2,
 		y=givemebuttons[subject.id]["metalbar"].y + 1,
 		tooltip = "Your ally's metal income."
@@ -809,7 +894,7 @@ local function InitName(subject, playerPanel)
 		parent=playerPanel,
 		height='50%',
 		width=100,
-		fontsize=smallerFontSize,
+		objectOverrideFont = WG.GetFont(smallerFontSize),
 		x=givemebuttons[subject.id]["energybar"].x + givemebuttons[subject.id]["energybar"].width + 2,
 		y=givemebuttons[subject.id]["energybar"].y + 1,
 		tooltip = "Your ally's energy income."
@@ -882,7 +967,7 @@ local function InitName(subject, playerPanel)
 						height='100%'
 					}
 				},
-				caption=" "
+				noFont = true,
 			}
 			givemebuttons[subject.id]["commshare"] = chili.Button:New{
 				parent = playerPanel,
@@ -900,7 +985,7 @@ local function InitName(subject, playerPanel)
 						height='100%'
 					}
 				},
-				caption=" "
+				noFont = true,
 			}
 			givemebuttons[subject.id]["kick"] = chili.Button:New{
 				parent = playerPanel,
@@ -918,26 +1003,44 @@ local function InitName(subject, playerPanel)
 						height='100%'
 					}
 				},
-				caption=" "
+				noFont = true,
 			}
 			givemebuttons[subject.id]["battlekick"] = chili.Button:New{
 				parent = playerPanel,
 				height = buttonsize,
 				width = buttonsize,
-				x= givemebuttons[subject.id]["text"].x  + givemebuttons[subject.id]["text"].width,
+				x= metalBarX,
 				y= givemebuttons[subject.id]["text"].y - 6,
-				OnClick = {function () BattleKickPlayer(subject) end},
-				padding={1,1,1,1},
-				tooltip = "Kick this player from the battle.",
+				OnClick = {function () ReportPlayer(subject) end},
+				padding={2,2,2,2},
+				tooltip = "Report this player to moderators.",
 				children={
 					chili.Image:New{
-						file=images.kick,
+						file=images.report,
 						width='100%',
 						height='100%'
 					}
 				},
-				caption=" "
+				noFont = true,
 			}
+			--givemebuttons[subject.id]["battlekick"] = chili.Button:New{
+			--	parent = playerPanel,
+			--	height = buttonsize,
+			--	width = buttonsize,
+			--	x= metalBarX,
+			--	y= givemebuttons[subject.id]["text"].y - 6,
+			--	OnClick = {function () BattleKickPlayer(subject) end},
+			--	padding={1,1,1,1},
+			--	tooltip = "Kick this player from the battle.",
+			--	children={
+			--		chili.Image:New{
+			--			file=images.kick,
+			--			width='100%',
+			--			height='100%'
+			--		}
+			--	},
+			--	noFont = true,
+			--}
 		end
 	else
 		givemebuttons[subject.id]["leave"] = chili.Button:New{
@@ -958,14 +1061,33 @@ local function InitName(subject, playerPanel)
 					y=0
 				}
 			},
-			caption=" "
+			noFont = true,
+		}
+		givemebuttons[subject.id]["battlekick"] = chili.Button:New{
+			parent = playerPanel,
+			height = buttonsize,
+			width = buttonsize,
+			x= metalBarX,
+			y= givemebuttons[subject.id]["text"].y - 6,
+			OnClick = {function () ReportPlayer(subject) end},
+			padding={2,2,2,2},
+			tooltip = "Report this player to moderators.",
+			children={
+				chili.Image:New{
+					file=images.report,
+					width='100%',
+					height='100%'
+				}
+			},
+			noFont = true,
 		}
 	end
-	local country, icon, badges, clan, avatar, faction, admin
+	local country, icon, elo, badges, clan, avatar, faction, admin
 	if (subject.player) then
 		local pdata = select(10, Spring.GetPlayerInfo(subject.player))
 		country = select(8, Spring.GetPlayerInfo(subject.player, false))
 		icon = pdata.icon
+		elo = pdata.elo
 		badges = pdata.badges
 		clan = pdata.clan
 		avatar = pdata.avatar
@@ -1026,29 +1148,30 @@ local function InitName(subject, playerPanel)
 			y = givemebuttons[subject.id]["text"].y - 1
 		}
 	end
+
 	if (adminImg) then
-		if givemebuttons[subject.id]["battlekick"] then
-			givemebuttons[subject.id]["battlekick"]:Dispose()
-		end
-		givemebuttons[subject.id]["admin"] = chili.Button:New{
-			parent = playerPanel,
-			height = buttonsize,
-			width = buttonsize,
-			x= bottomRowStartX + givemebuttons[subject.id]["text"].width + 2 * buttonsize,
-			y= givemebuttons[subject.id]["text"].y - 4,
-			padding={1,1,1,1},
-			tooltip = "Zero-K Administrator",
-			children={
-				chili.Image:New{
-					file=adminImg,
-					width=16,
-					height=16,
-					x = 2,
-					y = 2
-				}
-			},
-			caption=" "
-		}
+		--if givemebuttons[subject.id]["battlekick"] then
+		--	givemebuttons[subject.id]["battlekick"]:Dispose()
+		--end
+		--givemebuttons[subject.id]["admin"] = chili.Button:New{
+		--	parent = playerPanel,
+		--	height = buttonsize,
+		--	width = buttonsize,
+		--	x= bottomRowStartX + givemebuttons[subject.id]["text"].width + 2 * buttonsize,
+		--	y= givemebuttons[subject.id]["text"].y - 4,
+		--	padding={1,1,1,1},
+		--	tooltip = "Zero-K Administrator",
+		--	children={
+		--		chili.Image:New{
+		--			file=adminImg,
+		--			width=16,
+		--			height=16,
+		--			x = 2,
+		--			y = 2
+		--		}
+		--	},
+		--	caption=" "
+		--}
 	end
 	--if (countryImg) then
 	--	chili.Image:New{parent=playerPanel,
@@ -1097,6 +1220,21 @@ local function InitName(subject, playerPanel)
 			end
 		end
 	end
+
+	if options.enableNumWHR.value and elo then
+		local whrMargin = 2
+		
+		chili.TextBox:New{
+			parent=playerPanel,
+			width=whrWidth - 2*whrMargin,
+			x= givemebuttons[subject.id]["text"].x + givemebuttons[subject.id]["text"].width + whrMargin,
+			y= givemebuttons[subject.id]["text"].y + 1 ,
+			tooltip = "WHR Current Rating",
+			text = elo,
+			textColor = (icon and rankColors[icon:sub(3,3)]) or {1,1,1,1}
+		}
+	end
+
 	--Spring.Echo("Playerpanel size: " .. playerPanel.width .. "x" .. playerPanel.height .. "\nTextbox size: " .. playerPanel.width*0.4 .. "x" .. playerPanel.height)
 	local isSpec = select(3,Spring.GetPlayerInfo(subject.id, false))
 	--if not isSpec then
@@ -1111,7 +1249,7 @@ local function Buildme()
 	if (window) then
 		window:Dispose()
 	end
-	windowWidth = 768
+	windowWidth = 768 + (options.enableNumWHR.value and (2 * whrWidth) or 0)
 	windowHeight = 666
 	--Spring.Echo("Window size: " .. window.width .. "x" .. window.height)
 	
@@ -1119,7 +1257,7 @@ local function Buildme()
 	local allypanels = {}
 	local allpanels = {}
 	local playerHeight =  64
-	local playerWidth =  339
+	local playerWidth =  339 + (options.enableNumWHR.value and whrWidth or 0)
 	local lastAllyTeam = 0
 	for _, subject in ipairs(subjects) do
 		if (not playerpanels[subject.allyteam]) then
@@ -1173,7 +1311,10 @@ local function Buildme()
 				width=panelWidth,
 				height = titleSize,
 				x = panelX,
-				y = localHeightOffset + 10,caption=name,fontsize=titleSize - 4,textColor=color,
+				y = localHeightOffset + 10,
+				caption=name,
+				objectOverrideFont = WG.GetFont(titleSize - 4),
+				textColor=color,
 				align='center'
 			}
 			allypanels[#allypanels + 1] = label
@@ -1239,7 +1380,7 @@ local function Buildme()
 		x='43%',
 		y=10,
 		text="P L A Y E R S",
-		fontsize=17,
+		objectOverrideFont = WG.GetFont(17),
 		textColor={1.0,1.0,1.0,1.0}
 	}
 	chili.ScrollPanel:New{
@@ -1261,7 +1402,7 @@ local function Buildme()
 end
 UpdateListFunction = Buildme
 
-local function SetWantRebuild()
+function SetWantRebuild()
 	if (mySubjectID < 0 or not subjects[mySubjectID]) then
 		return
 	end
@@ -1286,17 +1427,17 @@ local function UpdateInviteTable()
 			--Spring.Echo("Invite: " .. playerID .. " : " .. timeleft)
 			if invites[playerID] == nil and timeleft > 1 and deadinvites[playerID] ~= timeleft then
 				invites[playerID] = timeleft
-				givemebuttons[givemesubjects[playerID].id]["accept"]:SetVisibility(true)
+				SafeSetButtonVisibility(givemebuttons[givemesubjects[playerID].id]["accept"], true)
 			elseif invites[playerID] == timeleft then
 				invites[playerID] = nil -- dead invite
 				deadinvites[playerID] = timeleft
-				givemebuttons[givemesubjects[playerID].id]["accept"]:SetVisibility(false)
+				SafeSetButtonVisibility(givemebuttons[givemesubjects[playerID].id]["accept"], false)
 			elseif timeleft == 1 then
-				givemebuttons[givemesubjects[playerID].id]["accept"]:SetVisibility(false)
+				SafeSetButtonVisibility(givemebuttons[givemesubjects[playerID].id]["accept"], false)
 				invites[playerID] = nil
 			elseif invites[playerID] and timeleft > 1 then
 				invites[playerID] = timeleft
-					givemebuttons[givemesubjects[playerID].id]["accept"]:SetVisibility(true)
+					SafeSetButtonVisibility(givemebuttons[givemesubjects[playerID].id]["accept"], true)
 					--Spring.Echo("showing")
 			end
 		-- else
@@ -1445,7 +1586,7 @@ function widget:Update(dt)
 		
 		for _, subject in ipairs(subjects) do
 			if (givemebuttons[subject.id] and givemebuttons[subject.id]["accept"]) then
-				givemebuttons[subject.id]["accept"]:SetVisibility(false)
+				SafeSetButtonVisibility(givemebuttons[subject.id]["accept"], false)
 			end
 		end
 		if invitecount and built then
@@ -1486,6 +1627,10 @@ function widget:Update(dt)
 		end
 		UpdatePlayers()
 	end
+end
+
+function widget:RecvLuaMsg(msg)
+	HandleKickMessage(msg)
 end
 
 function widget:Initialize()

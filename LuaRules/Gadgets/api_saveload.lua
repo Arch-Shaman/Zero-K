@@ -61,7 +61,6 @@ local spCreateUnit          = Spring.CreateUnit
 local spSetUnitHealth       = Spring.SetUnitHealth
 local spSetUnitMaxHealth    = Spring.SetUnitMaxHealth
 local spSetUnitVelocity     = Spring.SetUnitVelocity
-local spSetUnitRotation     = Spring.SetUnitRotation
 local spSetUnitExperience   = Spring.SetUnitExperience
 local spSetUnitShieldState  = Spring.SetUnitShieldState
 local spSetUnitWeaponState  = Spring.SetUnitWeaponState
@@ -333,14 +332,14 @@ local function LoadUnits()
 			spSetUnitStockpile(newID, data.stockpile.num or 0, data.stockpile.progress or 0)
 			
 			-- states
-			spGiveOrderToUnit(newID, CMD.FIRE_STATE, {data.states.firestate or 2}, 0)
-			spGiveOrderToUnit(newID, CMD.MOVE_STATE, {data.states.movestate or 1}, 0)
-			spGiveOrderToUnit(newID, CMD.REPEAT, {boolToNum(data.states["repeat"])}, 0)
-			spGiveOrderToUnit(newID, CMD.CLOAK, {boolToNum(data.states.cloak)}, 0)
-			spGiveOrderToUnit(newID, CMD.ONOFF, {boolToNum(data.states.active)}, 0)
-			spGiveOrderToUnit(newID, CMD.TRAJECTORY, {boolToNum(data.states.trajectory)}, 0)
-			spGiveOrderToUnit(newID, CMD.IDLEMODE, {boolToNum(data.states.autoland)}, 0)
-			spGiveOrderToUnit(newID, CMD.AUTOREPAIRLEVEL, {boolToNum(data.states.autorepairlevel)}, 0)
+			spGiveOrderToUnit(newID, CMD.FIRE_STATE     ,           data.states.firestate or 2  , 0)
+			spGiveOrderToUnit(newID, CMD.MOVE_STATE     ,           data.states.movestate or 1  , 0)
+			spGiveOrderToUnit(newID, CMD.REPEAT         , boolToNum(data.states["repeat"])      , 0)
+			spGiveOrderToUnit(newID, CMD.CLOAK          , boolToNum(data.states.cloak)          , 0)
+			spGiveOrderToUnit(newID, CMD.ONOFF          , boolToNum(data.states.active)         , 0)
+			spGiveOrderToUnit(newID, CMD.TRAJECTORY     , boolToNum(data.states.trajectory)     , 0)
+			spGiveOrderToUnit(newID, CMD.IDLEMODE       , boolToNum(data.states.autoland)       , 0)
+			spGiveOrderToUnit(newID, CMD.AUTOREPAIRLEVEL, boolToNum(data.states.autorepairlevel), 0)
 			
 			if data.states.custom then
 				for cmdID, state in pairs(data.states.custom) do
@@ -350,7 +349,7 @@ local function LoadUnits()
 						if cmdID == CMD_RETREAT and state == 0 then
 							opt = OPT_RIGHT
 						end
-						spGiveOrderToUnit(newID, cmdID, {state}, opt)
+						spGiveOrderToUnit(newID, cmdID, state, opt)
 					end
 				end
 			end
@@ -427,8 +426,8 @@ local function LoadUnits()
 	-- WAIT WAIT everything
 	for oldID, data in pairs(savedata.unit) do
 		if data.newID then
-			spGiveOrderToUnit(data.newID, CMD.WAIT, {}, 0)
-			spGiveOrderToUnit(data.newID, CMD.WAIT, {}, 0)
+			spGiveOrderToUnit(data.newID, CMD.WAIT, 0, 0)
+			spGiveOrderToUnit(data.newID, CMD.WAIT, 0, 0)
 		end
 	end
 	
@@ -700,9 +699,7 @@ local spGetFeatureHealth	= Spring.GetFeatureHealth
 local spGetFeatureDirection	= Spring.GetFeatureDirection
 local spGetFeaturePosition	= Spring.GetFeaturePosition
 local spGetFeatureHeading	= Spring.GetFeatureHeading
-local spGetFeatureVelocity	= Spring.GetFeatureVelocity
 local spGetFeatureResources	= Spring.GetFeatureResources
-local spGetFeatureNoSelect	= Spring.GetFeatureNoSelect
 
 local spGetProjectileDefID         = Spring.GetProjectileDefID
 local spGetProjectileTeamID        = Spring.GetProjectileTeamID

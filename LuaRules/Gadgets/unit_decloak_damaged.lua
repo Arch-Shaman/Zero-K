@@ -58,10 +58,10 @@ for i = 1, #WeaponDefs do
 	end
 end
 
-local DEFAULT_DECLOAK_TIME = 150
+local DEFAULT_DECLOAK_TIME = 240
 local PERSONAL_DECLOAK_TIME = 90
 
-local DEFAULT_PROXIMITY_DECLOAK_TIME = 75
+local DEFAULT_PROXIMITY_DECLOAK_TIME = 90
 local PERSONAL_PROXIMITY_DECLOAK_TIME = 45
 
 local UPDATE_FREQUENCY = 10
@@ -123,20 +123,20 @@ end
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-local function GetProximityDecloakTime(unitID, unitDefID)
+local function UnitHasPersonalCloak(unitID, unitDefID)
 	unitDefID = unitDefID or spGetUnitDefID(unitID)
 	if commDefID[unitDefID] and GG.Upgrades_UnitCanCloak(unitID) then
-		return PERSONAL_PROXIMITY_DECLOAK_TIME
+		return true
 	end
-	return (cloakUnitDefID[unitDefID] and PERSONAL_PROXIMITY_DECLOAK_TIME) or DEFAULT_PROXIMITY_DECLOAK_TIME
+	return (cloakUnitDefID[unitDefID] and true) or false
+end
+
+local function GetProximityDecloakTime(unitID, unitDefID)
+	return (UnitHasPersonalCloak(unitID, unitDefID) and PERSONAL_PROXIMITY_DECLOAK_TIME) or DEFAULT_PROXIMITY_DECLOAK_TIME
 end
 
 local function GetActionDecloakTime(unitID, unitDefID)
-	unitDefID = unitDefID or spGetUnitDefID(unitID)
-	if commDefID[unitDefID] and GG.Upgrades_UnitCanCloak(unitID) then
-		return PERSONAL_DECLOAK_TIME
-	end
-	return (cloakUnitDefID[unitDefID] and PERSONAL_DECLOAK_TIME) or DEFAULT_DECLOAK_TIME
+	return (UnitHasPersonalCloak(unitID, unitDefID) and PERSONAL_DECLOAK_TIME) or DEFAULT_DECLOAK_TIME
 end
 
 local function PokeDecloakUnit(unitID, unitDefID)
@@ -147,10 +147,21 @@ local function PokeDecloakUnit(unitID, unitDefID)
 	recloakUnit[unitID] = GetActionDecloakTime(unitID, unitDefID)
 end
 
-GG.PokeDecloakUnit = PokeDecloakUnit
+local function GetCloakedAllowed(unitID)
+	if not recloakFrame[unitID] and not recloakUnit[unitID] then
+		return true
+	end
+	if (recloakFrame[unitID] or 0) > currentFrame then
+		return false
+	end
+	return (recloakUnit[unitID] or 0) <= 0
+end
 
-function gadget:UnitDamaged(unitID, unitDefID, unitTeam, damage, paralyzer,
-                            weaponID, attackerID, attackerDefID, attackerTeam)
+GG.UnitHasPersonalCloak = UnitHasPersonalCloak
+GG.PokeDecloakUnit      = PokeDecloakUnit
+GG.GetCloakedAllowed    = GetCloakedAllowed
+
+function gadget:UnitDamaged(unitID, unitDefID, unitTeam, damage, paralyzer, weaponID, attackerID, attackerDefID, attackerTeam)
 	if  (damage > 0 or spIsWeaponPureStatusEffect(weaponID)) and
 		not (attackerTeam and
 		weaponID and
@@ -223,7 +234,7 @@ function gadget:AllowUnitCloak(unitID, enemyID)
 		local transID = Spring.GetUnitTransporter(unitID)
 		if transID then
 			-- For some reason enemyID indicates that the unit is being transported.
-			return Spring.GetUnitIsCloaked(transID)
+			return spGetUnitIsCloaked(transID)
 		end
 		recloakFrame[unitID] = currentFrame + GetProximityDecloakTime(unitID)
 		return false
@@ -248,7 +259,9 @@ function gadget:AllowUnitCloak(unitID, enemyID)
 	end
 	
 	local areaCloaked = (Spring.GetUnitRulesParam(unitID, "areacloaked") == 1) and ((Spring.GetUnitRulesParam(unitID, "cloak_shield") or 0) == 0)
-	if not areaCloaked then
+	if areaCloaked then
+		return GG.AreaCloakFinishedCharging(unitID)
+	else -- Not area cloaked
 		local speed = select(4, Spring.GetUnitVelocity(unitID))
 		local moving = speed and speed > CLOAK_MOVE_THRESHOLD
 		local cost = moving and ud.cloakCostMoving or ud.cloakCost
@@ -307,7 +320,7 @@ end
 
 function gadget:AllowCommand(unitID, unitDefID, teamID, cmdID, cmdParams, cmdOptions)
 	if cmdID == CMD_WANT_CLOAK then
-		if cloakUnitDefID[unitDefID] or GG.Upgrades_UnitCanCloak(unitID) then
+		if UnitHasPersonalCloak(unitID, unitDefID) then
 			SetWantedCloaked(unitID,cmdParams[1])
 		end
 		return false
@@ -322,7 +335,7 @@ end
 
 function gadget:UnitCreated(unitID, unitDefID)
 	local ud = UnitDefs[unitDefID]
-	if cloakUnitDefID[unitDefID] or GG.Upgrades_UnitCanCloak(unitID) then
+	if UnitHasPersonalCloak(unitID, unitDefID) then
 		local cloakDescID = Spring.FindUnitCmdDesc(unitID, CMD_CLOAK)
 		if cloakDescID then
 			Spring.InsertUnitCmdDesc(unitID, unitWantCloakCommandDesc)

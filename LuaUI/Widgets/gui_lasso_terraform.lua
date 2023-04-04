@@ -84,8 +84,12 @@ local Grid = 16 -- grid size, do not change without other changes.
 local HOTKEY_PATH = 'Hotkeys/Construction'
 
 options_path = 'Settings/Interface/Building Placement'
-options_order = {'structure_holdMouse', 'structure_altSelect', 'staticMouseTime', 'label_preset', 'text_hotkey_level', 'text_hotkey_raise'}
+options_order = {'catlabel', 'structure_holdMouse', 'structure_altSelect', 'staticMouseTime', 'label_preset', 'text_hotkey_level', 'text_hotkey_raise'}
 options = {
+	catlabel = {
+		name = 'Build Height',
+		type = 'label',
+	},
 	structure_holdMouse = {
 		name = "Terraform by holding mouse click",
 		type = "bool",
@@ -129,10 +133,14 @@ options = {
 ---------------------------------
 -- Terraform hotkey presets
 
-local levelPresets = {0, -8, -20, -24}
-local levelTypePreset = {0, 0, 0, 0}
-local raisePresets = {12, -12, 24, -30}
-local raiseTypePreset = {1, 2, 1, 2}
+local hotkeyDefaults = {
+	levelPresets = {0, -8, -20, -24},
+	levelTypePreset = {0, 0, 0, 0},
+	raisePresets = {12, 24, 46, 240, -120, 96},
+	raiseTypePreset = {1, 1, 1, 0, 0, 1},
+	levelCursorHotkey = {"alt+g"},
+	raiseHotkey = {"alt+v", "alt+b", "alt+n", "alt+h", "alt+j", "alt+m"},
+}
 
 ---------------------------------
 -- Config
@@ -157,8 +165,8 @@ local maxWallPoints = 700 -- max points that makeup a wall
 -- bounding ramp dimensions, reduces slowdown MUST AGREE WITH GADGET VALUES
 local maxRampLength = 3000
 local maxRampWidth = 800
-local minRampLength = 40
-local minRampWidth = 24
+local minRampLength = 64
+local minRampWidth = 48
 
 local startRampWidth = 60
 
@@ -172,7 +180,9 @@ local posVolume   = {0, 1, 0, 0.1} -- posisive volume
 local groundGridColor  = {0.3, 0.2, 1, 0.8} -- grid representing new ground height
 
 -- colour of lasso during drawing
-local lassoColor = {0.2, 1.0, 0.2, 1.0}
+local lassoColorGood = {0.2, 1.0, 0.2, 1.0}
+local lassoColorBad  = {1.0, 0.2, 0.2, 1.0}
+local lassoColorCurrent = lassoColorGood
 
 -- colour of ramp
 local vehPathingColor = {0.2, 1.0, 0.2, 1.0}
@@ -205,10 +215,13 @@ local commandMap = {
 	CMD_RESTORE
 }
 
+local terraTag=-1
+
 local volumeSelection = 0
 
 local currentlyActiveCommand = false
 local presetTerraHeight = false
+local presetTerraLevelToCursor = false
 local mouseBuilding = false
 
 local buildToGive = false
@@ -239,12 +252,46 @@ local mexDefID = UnitDefNames.staticmex.id
 --------------------------------------------------------------------------------
 -- Hotkeys
 
+for i = 1, 3 do
+	options["level_cursor_radio_" .. i]  = {
+		name = 'Level to Cursor Hotkey ' .. i,
+		type = 'radioButton',
+		path = HOTKEY_PATH .. "/Level",
+		value = i - 1,
+		items = {
+			{key = 0, name = 'Add and Subtract', desc = 'Terraform the entire area to the selected height.'},
+			{key = 1, name = 'Only Add', desc = 'Raise lower parts of the terrain up to the selected height.'},
+			{key = 2, name = 'Only Subtract', desc = 'Lower high parts of the terrain up to the selected height.'},
+		},
+		noHotkey = true,
+	}
+	options_order[#options_order + 1] = "level_cursor_radio_" .. i
+
+	options["level_cursor_button_" .. i] = {
+		type = 'button',
+		name = 'Level to Cursor Hotkey ' .. i,
+		desc = 'Set this hotkey to Level to the height of the terrain at the start of the lasson drawing.',
+		path = HOTKEY_PATH .. "/Level",
+		hotkey = hotkeyDefaults.levelCursorHotkey[i],
+		OnChange = function ()
+			local cmdDesc = Spring.GetCmdDescIndex(CMD_LEVEL)
+			if cmdDesc then
+				Spring.SetActiveCommand(cmdDesc)
+				volumeSelection = options["level_cursor_radio_" .. i].value
+				presetTerraHeight = 0
+				presetTerraLevelToCursor = true
+			end
+		end,
+	}
+	options_order[#options_order + 1] = "level_cursor_button_" .. i
+end
+
 for i = 1, 10 do
 	options["level_type_" .. i]  = {
 		name = 'Level Hotkey ' .. i,
 		type = 'radioButton',
 		path = HOTKEY_PATH .. "/Level",
-		value = levelTypePreset[i] or 0,
+		value = hotkeyDefaults.levelTypePreset[i] or 0,
 		items = {
 			{key = 0, name = 'Add and Subtract', desc = 'Terraform the entire area to the selected height.'},
 			{key = 1, name = 'Only Add', desc = 'Raise lower parts of the terrain up to the selected height.'},
@@ -258,8 +305,8 @@ for i = 1, 10 do
 		name = "Level height " .. i,
 		type = "number",
 		path = HOTKEY_PATH .. "/Level",
-		value = levelPresets[i] or 0,
-		min = -300, max = 300, step = 2,
+		value = hotkeyDefaults.levelPresets[i] or 0,
+		min = -400, max = 400, step = 2,
 	}
 	options_order[#options_order + 1] = "level_value_" .. i
 	
@@ -283,7 +330,7 @@ for i = 1, 10 do
 		name = 'Raise Hotkey ' .. i,
 		type = 'radioButton',
 		path = HOTKEY_PATH .. "/Raise",
-		value = raiseTypePreset[i] or 0,
+		value = hotkeyDefaults.raiseTypePreset[i] or 0,
 		items = {
 			{key = 0, name = 'Full', desc = 'Raise or lower the entire area.'},
 			{key = 1, name = 'Cull Cliffs', desc = 'Avoid raising sections of the terrain over the edge of cliffs.'},
@@ -297,8 +344,8 @@ for i = 1, 10 do
 		name = "Raise amount " .. i,
 		type = "number",
 		path = HOTKEY_PATH .. "/Raise",
-		value = raisePresets[i] or 0,
-		min = -300, max = 300, step = 2,
+		value = hotkeyDefaults.raisePresets[i] or 0,
+		min = -400, max = 400, step = 2,
 	}
 	options_order[#options_order + 1] = "raise_value_" .. i
 	
@@ -307,6 +354,7 @@ for i = 1, 10 do
 		name = 'Raise Hotkey ' .. i,
 		desc = 'Set this hotkey to issue a Raise command with these parameters.',
 		path = HOTKEY_PATH .. "/Raise",
+		hotkey = hotkeyDefaults.raiseHotkey[i],
 		OnChange = function ()
 			local cmdDesc = Spring.GetCmdDescIndex(CMD_RAISE)
 			if cmdDesc then
@@ -326,6 +374,7 @@ end
 local function stopCommand(shiftHeld)
 	if not shiftHeld then
 		presetTerraHeight = false
+		presetTerraLevelToCursor = false
 	end
 	if not presetTerraHeight then
 		volumeSelection = 0
@@ -354,6 +403,7 @@ end
 
 local function completelyStopCommand()
 	presetTerraHeight = false
+	presetTerraLevelToCursor = false
 	volumeSelection = 0
 	
 	currentlyActiveCommand = false
@@ -377,12 +427,6 @@ local function completelyStopCommand()
 	simpleDrawingRamp = false
 	points = 0
 	terraform_type = 0
-end
-
-local terraTag=-1
-function WG.Terraform_GetNextTag()
-	terraTag = terraTag + 1
-	return terraTag
 end
 
 local function SendCommand()
@@ -585,7 +629,6 @@ local function groundGrid()
 end
 
 local function mouseGridLevel()
-
 	for i = 1, drawPoints do
 	
 		glColor(groundGridColor)
@@ -611,7 +654,6 @@ local function mouseGridLevel()
 end
 
 local function mouseGridRaise()
-
 	for i = 1, drawPoints do
 	
 		glColor(groundGridColor)
@@ -637,7 +679,6 @@ local function mouseGridRaise()
 end
 
 local function calculateLinePoints(mPoint, mPoints)
-
 	local border = {left = Game.mapSizeX, right = 0, top = Game.mapSizeZ, bottom = 0}
 	
 	local gPoint = {}
@@ -646,7 +687,10 @@ local function calculateLinePoints(mPoint, mPoints)
 	mPoint[1].x = floor((mPoint[1].x+8)/16)*16
 	mPoint[1].z = floor((mPoint[1].z+8)/16)*16
 	
-	gPoint[1] = {x = floor((mPoint[1].x+8)/16)*16, z = floor((mPoint[1].z+8)/16)*16}
+	gPoint[1] = {
+		x = floor((mPoint[1].x+8)/16)*16,
+		z = floor((mPoint[1].z+8)/16)*16
+	}
 	
 	if gPoint[gPoints].x < border.left then
 		border.left = gPoint[gPoints].x
@@ -661,7 +705,6 @@ local function calculateLinePoints(mPoint, mPoints)
 		border.bottom = gPoint[gPoints].z
 	end
 	
-	
 	for i = 2, mPoints, 1 do
 		mPoint[i].x = floor((mPoint[i].x+8)/16)*16
 		mPoint[i].z = floor((mPoint[i].z+8)/16)*16
@@ -670,7 +713,7 @@ local function calculateLinePoints(mPoint, mPoints)
 		local diffZ = mPoint[i].z - mPoint[i-1].z
 		local a_diffX = abs(diffX)
 		local a_diffZ = abs(diffZ)
-			
+		
 		if a_diffX <= 16 and a_diffZ <= 16 then
 			gPoints = gPoints + 1
 			gPoint[gPoints] = {x = mPoint[i].x, z = mPoint[i].z}
@@ -687,7 +730,6 @@ local function calculateLinePoints(mPoint, mPoints)
 				border.bottom = gPoint[gPoints].z
 			end
 		else
-
 			-- prevent holes inbetween points
 			if a_diffX > a_diffZ then
 				local m = diffZ/diffX
@@ -740,7 +782,7 @@ local function calculateLinePoints(mPoint, mPoints)
 	
 	local area = {}
 	
-	for i = border.left-32,border.right+32,16 do
+	for i = border.left - 32, border.right + 32, 16 do
 		area[i] = {}
 	end
 	
@@ -748,7 +790,6 @@ local function calculateLinePoints(mPoint, mPoints)
 	drawPoints = 0
 	
 	for i = 1, gPoints do
-		
 		for lx = -16,0,16 do
 			for lz = -16,0,16 do
 				if not area[gPoint[i].x+lx][gPoint[i].z+lz] then
@@ -767,16 +808,13 @@ local function calculateLinePoints(mPoint, mPoints)
 	end
 	
 	for i = 1, drawPoints do
-		
 		if not area[drawPoint[i].x+16][drawPoint[i].z] then
 			drawPoint[i].Right = true
 		end
 		if not area[drawPoint[i].x][drawPoint[i].z+16] then
 			drawPoint[i].Bottom = true
 		end
-		
 	end
-	
 end
 
 local function calculateAreaPoints(mPoint, mPoints)
@@ -791,7 +829,10 @@ local function calculateAreaPoints(mPoint, mPoints)
 	mPoint[1].x = floor((mPoint[1].x)/16)*16
 	mPoint[1].z = floor((mPoint[1].z)/16)*16
 	
-	gPoint[1] = {x = floor((mPoint[1].x)/16)*16, z = floor((mPoint[1].z)/16)*16}
+	gPoint[1] = {
+		x = floor((mPoint[1].x)/16)*16,
+		z = floor((mPoint[1].z)/16)*16
+	}
 	
 	if gPoint[gPoints].x < border.left then
 		border.left = gPoint[gPoints].x
@@ -814,7 +855,7 @@ local function calculateAreaPoints(mPoint, mPoints)
 		local diffZ = mPoint[i].z - mPoint[i-1].z
 		local a_diffX = abs(diffX)
 		local a_diffZ = abs(diffZ)
-			
+		
 		if a_diffX <= 16 and a_diffZ <= 16 then
 			gPoints = gPoints + 1
 			gPoint[gPoints] = {x = mPoint[i].x, z = mPoint[i].z}
@@ -831,7 +872,6 @@ local function calculateAreaPoints(mPoint, mPoints)
 				border.bottom = gPoint[gPoints].z
 			end
 		else
-
 			-- prevent holes inbetween points
 			if a_diffX > a_diffZ then
 				local m = diffZ/diffX
@@ -872,7 +912,6 @@ local function calculateAreaPoints(mPoint, mPoints)
 					end
 				end
 			end
-			
 		end
 	end
 	
@@ -884,7 +923,7 @@ local function calculateAreaPoints(mPoint, mPoints)
 	
 	local area = {}
 	
-	for i = border.left-32,border.right+32,16 do
+	for i = border.left - 32, border.right + 32, 16 do
 		area[i] = {}
 	end
 	
@@ -965,16 +1004,13 @@ local function calculateAreaPoints(mPoint, mPoints)
 	end
 	
 	for i = 1, drawPoints do
-		
 		if not area[drawPoint[i].x+16][drawPoint[i].z] then
 			drawPoint[i].Right = true
 		end
 		if not area[drawPoint[i].x][drawPoint[i].z+16] then
 			drawPoint[i].Bottom = true
 		end
-		
 	end
-	
 end
 
 local function SetFixedRectanglePoints(pos)
@@ -1035,8 +1071,6 @@ function widget:MousePress(mx, my, button)
 		spSetActiveCommand(index)
 		currentlyActiveCommand = CMD_LEVEL
 		
-		local mx,my = spGetMouseState()
-		
 		setHeight = true
 		drawingRectangle = false
 		placingRectangle = false
@@ -1083,7 +1117,7 @@ function widget:MousePress(mx, my, button)
 	end
 	
 	local toolTip = Spring.GetCurrentTooltip()
-	if not (toolTip == "" or st_find(toolTip, "TechLevel") or st_find(toolTip, "Terrain type") or st_find(toolTip, "Metal:")) then
+	if not (toolTip == "" or st_find(toolTip, "Terrain type") or st_find(toolTip, "Metal:")) then
 		return false
 	end
 	
@@ -1256,6 +1290,13 @@ function widget:MouseMove(mx, my, dx, dy, button)
 					end
 					point[2].z = z
 					point[3].z = point[1].z+16
+				end
+
+				if abs(point[2].x - point[3].x) > maxAreaSize
+				or abs(point[2].z - point[3].z) > maxAreaSize then
+					lassoColorCurrent = lassoColorBad
+				else
+					lassoColorCurrent = lassoColorGood
 				end
 			end
 		end
@@ -1493,11 +1534,9 @@ function widget:Update(dt)
 			widget:MousePress(mx, my, 1)
 		end
 	end
-
 end
 
 function widget:MouseRelease(mx, my, button)
-	
 	if drawingLasso then
 		if button == 1 then
 			
@@ -1562,7 +1601,7 @@ function widget:MouseRelease(mx, my, button)
 					groundGridDraw = glCreateList(glBeginEnd, GL_LINES, groundGrid)
 				end
 				if points ~= 0 then
-					if presetTerraHeight then
+					if presetTerraHeight and not presetTerraLevelToCursor then
 						terraformHeight = presetTerraHeight
 					end
 					SendCommand()
@@ -1623,7 +1662,7 @@ function widget:MouseRelease(mx, my, button)
 								point[2] = {x = x + xsize + 16, z = point[1].z}
 								point[3] = {x = point[2].x, z = z + ysize + 16}
 								point[4] = {x = point[1].x, z = point[3].z}
-								point[5] = {x =point[1].x, z = point[1].z}
+								point[5] = {x = point[1].x, z = point[1].z}
 								loop = 0
 								calculateLinePoints(point,points)
 							end
@@ -1658,7 +1697,7 @@ function widget:MouseRelease(mx, my, button)
 					
 					x = floor((pos[1])/16)*16
 					z = floor((pos[3])/16)*16
-						
+					
 					if x - point[1].x == 0 then
 						x = x - 16
 					end
@@ -1670,13 +1709,17 @@ function widget:MouseRelease(mx, my, button)
 					z = point[2].z
 				end
 				
-				points = 5
-				point[2] = {x = point[1].x, z = z}
-				point[3] = {x = x, z = z}
-				point[4] = {x = x, z = point[1].z}
-				point[5] = {x = point[1].x, z = point[1].z}
+				local left, right = math.min(x, point[1].x), math.max(x, point[1].x)
+				local top, bottom = math.min(z, point[1].z), math.max(z, point[1].z)
+				
 				local a,c,m,s = spGetModKeyState()
-					
+				points = 5
+				point[1] = {x = left + (c and 16 or 0), z = top + (c and 16 or 0)}
+				point[2] = {x = point[1].x, z = bottom}
+				point[3] = {x = right, z = point[2].z}
+				point[4] = {x = point[3].x, z = point[1].z}
+				point[5] = {x = point[1].x, z = point[1].z}
+				
 				if c then
 					loop = 0
 					calculateLinePoints(point,points)
@@ -1711,7 +1754,6 @@ function widget:MouseRelease(mx, my, button)
 					if mouseUnit.id and point[1].x == point[2].x and point[1].z == point[2].z then
 						local ty, id = spTraceScreenRay(mx, my, false, false, false, true)
 						if ty == "unit" and id == mouseUnit.id then
-							
 							local x,_,z = spGetUnitPosition(mouseUnit.id)
 							local face = spGetUnitBuildFacing(mouseUnit.id)
 							
@@ -1742,7 +1784,7 @@ function widget:MouseRelease(mx, my, button)
 								loop = 0
 							end
 							
-							if presetTerraHeight then
+							if presetTerraHeight and not presetTerraLevelToCursor then
 								terraformHeight = presetTerraHeight
 							end
 							SendCommand()
@@ -1766,13 +1808,17 @@ function widget:MouseRelease(mx, my, button)
 					z = point[2].z
 				end
 				
-				points = 5
-				point[2] = {x = point[1].x, z = z}
-				point[3] = {x = x, z = z}
-				point[4] = {x = x, z = point[1].z}
-				point[5] = {x = point[1].x, z = point[1].z}
+				local left, right = math.min(x, point[1].x), math.max(x, point[1].x)
+				local top, bottom = math.min(z, point[1].z), math.max(z, point[1].z)
 				
 				local a,c,m,s = spGetModKeyState()
+				points = 5
+				point[1] = {x = left + (c and 16 or 0), z = top + (c and 16 or 0)}
+				point[2] = {x = point[1].x, z = bottom}
+				point[3] = {x = right, z = point[2].z}
+				point[4] = {x = point[3].x, z = point[1].z}
+				point[5] = {x = point[1].x, z = point[1].z}
+				
 				if c then
 					loop = 0
 					calculateLinePoints(point,points)
@@ -1782,7 +1828,7 @@ function widget:MouseRelease(mx, my, button)
 				end
 
 				if points ~= 0 then
-					if presetTerraHeight then
+					if presetTerraHeight and not presetTerraLevelToCursor then
 						terraformHeight = presetTerraHeight
 					end
 					SendCommand()
@@ -1960,6 +2006,15 @@ local function Terraform_SetPlacingRectangleCheck()
 	return options.structure_altSelect.value
 end
 
+function WG.Terraform_GetNextTag()
+	terraTag = terraTag + 1
+	return terraTag
+end
+
+function WG.Terraform_GetIsPlacingStructure()
+	return (placingRectangle or buildToGive) and true
+end
+
 function widget:Initialize()
 	--set WG content at initialize rather than during file read to avoid conflict with local copy (for dev/experimentation)
 	WG.Terraform_SetPlacingRectangle = Terraform_SetPlacingRectangle
@@ -1980,28 +2035,23 @@ local function DrawLine()
 	if legalPos(pos) then
 		glVertex(pos[1],pos[2],pos[3])
 	end
-	
 end
 
-local function DrawRectangleLine()
-
-	glVertex(point[3].x,point[1].y,point[3].z)
-	glVertex(point[3].x,point[1].y,point[2].z)
-	glVertex(point[2].x,point[1].y,point[2].z)
-	glVertex(point[2].x,point[1].y,point[3].z)
-	glVertex(point[3].x,point[1].y,point[3].z)
-	
+local function DrawRectangleLine(buffer)
+	buffer = buffer or 0
+	glVertex(point[3].x + buffer,point[1].y, point[3].z + buffer)
+	glVertex(point[3].x + buffer,point[1].y, point[2].z - buffer)
+	glVertex(point[2].x - buffer,point[1].y, point[2].z - buffer)
+	glVertex(point[2].x - buffer,point[1].y, point[3].z + buffer)
+	glVertex(point[3].x + buffer,point[1].y, point[3].z + buffer)
 end
 
 local function DrawRampFirstSetHeight(dis)
-	
 	glVertex(point[1].x,point[1].y,point[1].z)
 	glVertex(point[1].x,point[1].ground,point[1].z)
-	
 end
 
 local function DrawRampStart(dis)
-
 	local perpendicular = {x = terraformHeight*(point[1].z-point[2].z)/dis, z = -terraformHeight*(point[1].x-point[2].x)/dis}
 	
 	glVertex(point[1].x+perpendicular.x,point[1].y,point[1].z+perpendicular.z)
@@ -2012,7 +2062,6 @@ local function DrawRampStart(dis)
 end
 
 local function DrawRampMiddleEnd(dis)
-	
 	local perpendicular = {x = terraformHeight*(point[1].z-point[2].z)/dis, z = -terraformHeight*(point[1].x-point[2].x)/dis}
 	
 	glVertex(point[2].x-perpendicular.x,point[2].y,point[2].z-perpendicular.z)
@@ -2043,7 +2092,6 @@ function widget:DrawWorld()
 	glLineWidth(3.0)
 	
 	if terraform_type == 4 then
-	
 		local dis = sqrt((point[1].x-point[2].x)^2 + (point[1].z-point[2].z)^2)
 		
 		if dis == 0 then
@@ -2061,9 +2109,7 @@ function widget:DrawWorld()
 			glBeginEnd(GL_LINE_STRIP, DrawRampStart, dis)
 			glBeginEnd(GL_LINE_STRIP, DrawRampMiddleEnd, dis)
 		end
-	
 	else
-	
 		if setHeight then
 			--glDepthTest(true)
 			glCallList(groundGridDraw)
@@ -2072,11 +2118,15 @@ function widget:DrawWorld()
 			
 			--glDepthTest(false)
 		elseif drawingLasso then
-			glColor(lassoColor)
+			glColor(lassoColorGood)
 			glBeginEnd(GL_LINE_STRIP, DrawLine)
 		elseif drawingRectangle or (placingRectangle and placingRectangle.legalPos) then
-			glColor(lassoColor)
+			glColor(lassoColorCurrent)
 			glBeginEnd(GL_LINE_STRIP, DrawRectangleLine)
+			local a,c,m,s = spGetModKeyState()
+			if c then
+				glBeginEnd(GL_LINE_STRIP, DrawRectangleLine, 32)
+			end
 		end
 		
 	end
@@ -2129,9 +2179,11 @@ function widget:DrawScreen()
 		end
 	end
 end
+
 --------------------------------------------------------------------------------
 -- Drawing
 --------------------------------------------------------------------------------
+
 function widget:Shutdown()
 	if (volumeDraw) then
 		gl.DeleteList(volumeDraw); volumeDraw=nil

@@ -1,11 +1,11 @@
 function gadget:GetInfo()
 	return {
-		name 	= "Command Raw Move",
-		desc	= "Make unit move ahead at all cost!",
-		author	= "xponen, GoogleFrog",
-		date	= "June 12 2014",
-		license	= "GNU GPL, v2 or later",
-		layer	= 0,
+		name    = "Command Raw Move",
+		desc    = "Make unit move ahead at all cost!",
+		author  = "xponen, GoogleFrog",
+		date    = "June 12 2014",
+		license = "GNU GPL, v2 or later",
+		layer   = 0,
 		enabled = true,
 	}
 end
@@ -38,40 +38,7 @@ local CMD_OPT_ALT = CMD.OPT_ALT
 
 local MAX_UNITS = Game.maxUnits
 
-local rawBuildUpdateIgnore = {
-	[CMD.ONOFF] = true,
-	[CMD.FIRE_STATE] = true,
-	[CMD.MOVE_STATE] = true,
-	[CMD.REPEAT] = true,
-	[CMD.CLOAK] = true,
-	[CMD.STOCKPILE] = true,
-	[CMD.TRAJECTORY] = true,
-	[CMD.IDLEMODE] = true,
-	[CMD_GLOBAL_BUILD] = true,
-	[CMD_STEALTH] = true,
-	[CMD_CLOAK_SHIELD] = true,
-	[CMD_UNIT_FLOAT_STATE] = true,
-	[CMD_PRIORITY] = true,
-	[CMD_MISC_PRIORITY] = true,
-	[CMD_RETREAT] = true,
-	[CMD_UNIT_BOMBER_DIVE_STATE] = true,
-	[CMD_AP_FLY_STATE] = true,
-	[CMD_AP_AUTOREPAIRLEVEL] = true,
-	[CMD_UNIT_SET_TARGET] = true,
-	[CMD_UNIT_CANCEL_TARGET] = true,
-	[CMD_UNIT_SET_TARGET_CIRCLE] = true,
-	[CMD_ABANDON_PW] = true,
-	[CMD_RECALL_DRONES] = true,
-	[CMD_UNIT_KILL_SUBORDINATES] = true,
-	[CMD_GOO_GATHER] = true,
-	[CMD_PUSH_PULL] = true,
-	[CMD_UNIT_AI] = true,
-	[CMD_WANT_CLOAK] = true,
-	[CMD_DONT_FIRE_AT_RADAR] = true,
-	[CMD_AIR_STRAFE] = true,
-	[CMD_PREVENT_OVERKILL] = true,
-	[CMD_SELECTION_RANK] = true,
-}
+local rawBuildUpdateIgnore = include("LuaRules/Configs/state_commands.lua")
 
 local stopCommand = {
 	[CMD.GUARD] = true,
@@ -135,6 +102,9 @@ for i = 1, #UnitDefs do
 			-- Lower stopping distance for more precise placement on terrain
 			loneStopDist = 4
 		end
+		if ud.customParams.unstick_leeway then
+			startMovingTime[i] = tonumber(ud.customParams.unstick_leeway)
+		end
 		if ud.canFly then
 			canFlyDefs[i] = true
 			stopDist = ud.speed
@@ -152,7 +122,7 @@ for i = 1, #UnitDefs do
 		if stopDist and not goalDist[i] then
 			goalDist[i] = loneStopDist
 		end
-		stoppingRadiusIncrease[i] = ud.xsize*250
+		stoppingRadiusIncrease[i] = ud.xsize*260*(1 + math.max(0, (ud.xsize - 4)*0.15))
 	end
 end
 
@@ -201,7 +171,9 @@ local commonStopRadius = {}
 local oldCommandStoppingRadius = {}
 local commandCount = {}
 local oldCommandCount = {}
-local fromFactory = {}
+local fromFactoryReplaceSkip = {}
+local engineMoveAppeared = {}
+local fromFactoryID = {}
 
 local constructors = {}
 local constructorBuildDist = {}
@@ -211,6 +183,7 @@ local constructorsPerFrame = 0
 local constructorIndex = 1
 local alreadyResetConstructors = false
 
+local checkEngineMove
 local moveCommandReplacementUnits
 local fastConstructorUpdate
 
@@ -509,6 +482,7 @@ function gadget:AllowCommand(unitID, unitDefID, unitTeam, cmdID, cmdParams, cmdO
 	if cmdID == CMD_MOVE and not canFlyDefs[unitDefID] then
 		moveCommandReplacementUnits = moveCommandReplacementUnits or {}
 		moveCommandReplacementUnits[#moveCommandReplacementUnits + 1] = unitID
+		engineMoveAppeared[unitID] = Spring.GetGameFrame()
 	end
 
 	if constructorBuildDistDefs[unitDefID] and not rawBuildUpdateIgnore[cmdID] then
@@ -699,8 +673,8 @@ end
 local function ReplaceMoveCommand(unitID)
 	local cmdID, _, cmdTag, cmdParam_1, cmdParam_2, cmdParam_3 = spGetUnitCurrentCommand(unitID)
 	if cmdID == CMD_MOVE and cmdParam_3 then
-		if fromFactory[unitID] then
-			fromFactory[unitID] = nil
+		if fromFactoryReplaceSkip[unitID] then
+			fromFactoryReplaceSkip[unitID] = nil
 		else
 			spGiveOrderToUnit(unitID, CMD_INSERT, {0, CMD_RAW_MOVE, 0, cmdParam_1, cmdParam_2, cmdParam_3}, CMD_OPT_ALT)
 		end
@@ -724,6 +698,54 @@ local function UpdateMoveReplacement()
 	moveCommandReplacementUnits = nil
 end
 
+local function DoFactoryWaypointManually(unitID)
+	local cQueue = spGetCommandQueue(unitID, -1)
+	local foundRightOpts = false
+	for i = 1, #cQueue do
+		if cQueue[i].id ~= CMD_MOVE then
+			return
+		end
+		if cQueue[i].options.coded == 8 then
+			foundRightOpts = true
+		end
+	end
+	if not foundRightOpts then
+		return
+	end
+	local facID = fromFactoryID[unitID]
+	if not Spring.ValidUnitID(facID) then
+		return
+	end
+	local factoryQueue = spGetCommandQueue(facID, -1)
+	local orderArray = {}
+	for i = 1, #factoryQueue do
+		orderArray[i] = {
+			factoryQueue[i].id,
+			factoryQueue[i].params,
+			factoryQueue[i].options.coded
+		}
+	end
+	Spring.GiveOrderArrayToUnitArray({unitID}, orderArray)
+end
+
+local function UpdateEngineMoveCheck(frame)
+	-- Maybe this could be done one frame earlier, but I've already written it this
+	-- way and I don't want to unrewrite it if gadget:UnitFromFactory has recursion.
+	-- See https://github.com/ZeroK-RTS/Zero-K/issues/4317 for a test case.
+	if not checkEngineMove then
+		return
+	end
+
+	for i = 1, #checkEngineMove do
+		local unitID = checkEngineMove[i]
+		if engineMoveAppeared[unitID] ~= frame - 1 then
+			DoFactoryWaypointManually(unitID)
+		end
+		fromFactoryID[unitID] = nil
+	end
+	checkEngineMove = nil
+end
+
 ----------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------
 -- Gadget Interface
@@ -733,8 +755,8 @@ local function WaitWaitMoveUnit(unitID)
 	if unitData then
 		ResetUnitData(unitData)
 	end
-	Spring.GiveOrderToUnit(unitID, CMD.WAIT, {}, 0)
-	Spring.GiveOrderToUnit(unitID, CMD.WAIT, {}, 0)
+	Spring.GiveOrderToUnit(unitID, CMD.WAIT, 0, 0)
+	Spring.GiveOrderToUnit(unitID, CMD.WAIT, 0, 0)
 end
 
 local function AddRawMoveUnit(unitID)
@@ -748,7 +770,10 @@ local function RawMove_IsPathFree(unitDefID, sX, sZ, gX, gZ)
 end
 
 function gadget:UnitFromFactory(unitID, unitDefID, unitTeam, facID, facDefID)
-	fromFactory[unitID] = true
+	fromFactoryReplaceSkip[unitID] = true
+	fromFactoryID[unitID] = facID
+	checkEngineMove = checkEngineMove or {}
+	checkEngineMove[#checkEngineMove + 1] = unitID
 end
 
 function gadget:Initialize()
@@ -791,6 +816,7 @@ function gadget:GameFrame(n)
 	end
 	UpdateConstructors(n)
 	UpdateMoveReplacement()
+	UpdateEngineMoveCheck(n)
 	if n%247 == 4 then
 		oldCommandStoppingRadius = commonStopRadius
 		commonStopRadius = {}
