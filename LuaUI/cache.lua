@@ -17,6 +17,7 @@ local GetTeamColor = Spring.GetTeamColor
 local SetTeamColor = Spring.SetTeamColor
 local GetVisibleUnits = Spring.GetVisibleUnits
 local MarkerAddPoint = Spring.MarkerAddPoint
+local GetPlayerInfo  = Spring.GetPlayerInfo
 
 -- Block line drawing widgets
 --local MarkerAddLine = Spring.MarkerAddLine
@@ -50,6 +51,14 @@ end
 local spSetUnitNoSelect = Spring.SetUnitNoSelect
 function Spring.SetUnitNoSelect(unitID, value)
 	return
+end
+
+function Spring.GetPlayerInfo(playerID, getPlayerOpts) -- I have no idea what the second param actually does, I just looked at it in the source code -- Shaman.
+	local playerName, active, spectator, teamID, allyTeamID, pingTime, cpuUsage, country, rank, playerOpts, customkeys = GetPlayerInfo(playerID, getPlayerOpts)
+	if country == "??" then -- This causes an error when a Citizen of the World is present in game and the file cannot be added because windows restricts file names to not include ?'s.
+		country = "Unknown" -- consider changing this to wut instead to give just a question mark flag (it's in the game files)
+	end
+	return playerName, active, spectator, teamID, allyTeamID, pingTime, cpuUsage, country, rank, playerOpts, customkeys
 end
 
 local function buildIndex(teamID, radius, Icons)
