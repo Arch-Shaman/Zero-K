@@ -46,6 +46,7 @@ local langValue="en"
 local langListeners={}
 
 local translationExtras, translations, cjkLangs = VFS.Include("Luaui/Configs/i18n_databases.lua")
+local widgetRequestedTranslationDatabases = {} -- db = file
 
 local function addListener(l, widgetName)
 	if l and type(l)=="function" then
@@ -129,6 +130,11 @@ local function Translate (db, text, data, opts)
 	return translations[db].i18n(text, data, opts)
 end
 
+local function IsCJKLanguage()
+	return cjkLangs[lang] or false
+end
+
+WG.IsCJKLanguage = IsCJKLanguage -- needed for some localization efforts, namely dynamic font resizing
 WG.lang = lang
 WG.InitializeTranslation = addListener
 WG.ShutdownTranslation = shutdownTranslation
