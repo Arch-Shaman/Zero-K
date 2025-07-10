@@ -45,17 +45,7 @@ end
 local langValue="en"
 local langListeners={}
 
-local translationExtras = { -- lists databases to be merged into the main one
-	units = {"campaign_units", "pw_units"},
-	interface = {"common", "healthbars", "resbars"},
-}
-
-local translations = {
-	units = true,
-	epicmenu = true,
-	interface = true,
-	missions = true,
-}
+local translationExtras, translations, cjkLangs = VFS.Include("Luaui/Configs/i18n_databases.lua")
 
 local function addListener(l, widgetName)
 	if l and type(l)=="function" then
@@ -82,7 +72,6 @@ local function loadLocale(i18n,database,locale)
 end
 
 local function fireLangChange()
-
 	for db, trans in pairs(translations) do
 		if not trans.locales[langValue] then
 			local extras = translationExtras[db]
